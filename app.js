@@ -134,14 +134,24 @@
       var t = null;
       var m = line.match(TIME_LEAD);
       if(m){ t = parseTime(m[1]); line = line.slice(m[0].length); }
+      // YouTube puts the timestamp on its own line, so remember it even when
+      // nothing else is on that line — the next line is what it belongs to.
+      if(t !== null) lastT = t;
       line = line.replace(/[\[\(]\d{1,2}:\d{2}(?::\d{2})?[\]\)]/g, " ")
                  .replace(SPEAKER, " ")
                  .replace(/\s+/g, " ")
                  .trim();
       if(!line) return;
-      if(t !== null) lastT = t;
       chunks.push({ text: line, t: lastT });
     });
+
+    /* YouTube's automatic captions arrive as short unpunctuated lines. Without
+       sentence endings there is nothing to split on, so group the lines instead
+       and keep the timestamp of the line each group starts at. */
+    var punct = chunks.filter(function(c){ return /[.!?]/.test(c.text); }).length;
+    if(chunks.length > 6 && punct < chunks.length * 0.15){
+      return finishIndex(groupChunks(chunks));
+    }
 
     // Join chunks into sentences, keeping the timestamp of where each began.
     var sentences = [], buf = "", bufT = null;
@@ -161,10 +171,36 @@
     });
     if(buf.trim().length > 1) sentences.push({ text: buf.trim(), t: bufT });
 
+    /* A transcript with punctuation can still be one endless paragraph.
+       Anything much longer than a sentence gets grouped the same way. */
+    var tooLong = sentences.filter(function(s){ return s.text.length > 600; }).length;
+    if(sentences.length && tooLong / sentences.length > 0.5){
+      return finishIndex(groupChunks(chunks));
+    }
+
+    return finishIndex(sentences);
+  }
+
+  /* Merge short caption lines into readable ~20-word passages. */
+  function groupChunks(chunks){
+    var out = [], buf = [], bufT = null, words = 0;
+    chunks.forEach(function(c){
+      if(!buf.length) bufT = c.t;
+      buf.push(c.text);
+      words += c.text.split(/\s+/).length;
+      if(words >= 20){
+        out.push({ text: buf.join(" ").trim(), t: bufT });
+        buf = []; words = 0; bufT = null;
+      }
+    });
+    if(buf.length) out.push({ text: buf.join(" ").trim(), t: bufT });
+    return out;
+  }
+
+  function finishIndex(sentences){
     var vocab = {};
     var all = sentences.map(function(s){ return s.text; }).join(" ").toLowerCase();
     (all.match(/[a-z][a-z'’-]{2,}/g) || []).forEach(function(w){ vocab[w] = (vocab[w] || 0) + 1; });
-
     return {
       sentences: sentences,
       vocab: vocab,

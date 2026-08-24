@@ -61,6 +61,23 @@ Notes are placed by matching the last few seconds of overheard audio against the
 placement only works when the podcast reaches the microphone (speaker, not headphones). The word
 lookup does not need that — it matches what *you* said.
 
+## Getting a YouTube transcript
+
+YouTube writes one for nearly every video — you copy it rather than make it.
+
+**On a computer** (the reliable way): open the video → **...more** to expand the description →
+**Show transcript**. The panel opens on the right. Leave timestamps ON — Earshot reads them and
+turns them into tap-to-jump links. Click into the panel, select all, copy.
+
+**On the iPhone**: tap the description, scroll down, tap **Show transcript**. It displays fine but
+selecting the whole thing is awkward, so it's usually easier to copy on a Mac and let Universal
+Clipboard carry it to the phone (same Apple ID, Bluetooth + Wi-Fi + Handoff on — copy on the Mac,
+paste on the phone).
+
+Auto-generated captions arrive as short unpunctuated lines with the timestamp on its own line.
+`buildIndex()` detects that and groups them into ~20-word passages instead of splitting on
+sentence endings, keeping each group's start time.
+
 ## The rest of the loop
 
 - **Timestamps** — tap one to jump back to that moment (YouTube and Spotify links are built

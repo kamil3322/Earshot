@@ -1,6 +1,6 @@
 /* Earshot service worker — app shell cache.
    Bump CACHE whenever you change index.html, styles.css or app.js. */
-const CACHE = "earshot-v2";
+const CACHE = "earshot-v3";
 const SHELL = [
   "./",
   "./index.html",
