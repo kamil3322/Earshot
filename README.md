@@ -43,64 +43,100 @@ and works offline (the word list is stored on the device).
 
 ## How capture works
 
+Pick the episode **before** you listen and paste its transcript. That's what makes the rest work:
+the recognizer no longer has to guess against all of English, only against the few thousand
+words that actually occur in this episode.
+
 | You say | What is stored |
 |---|---|
-| `save debacle` | the word, plus whatever the mic heard in the previous 30 seconds as context |
-| `save meticulous he is very meticulous about it` | the word, plus the sentence you spoke |
-| `note the word gruelling …` | same — `save`, `note` and `catch` all work as triggers |
+| `save debacle` | the word, its real sentence from the transcript, and the timestamp |
+| `save meticulus` | repaired to **meticulous** — the transcript is the spelling authority |
+| `note that this applies to my own flat` | the thought, plus the passage that was playing |
 
-The rolling context only works when the audio reaches the microphone (speaker, not headphones).
-The reliable way to get real sentences is the transcript matcher below.
+`save` and `catch` trigger a word. `note that`, `note this`, `remember that` and `make a note`
+trigger a note. Without a transcript loaded everything still works — words are just stored
+exactly as the microphone heard them, and you can re-match later.
+
+Notes are placed by matching the last few seconds of overheard audio against the transcript, so
+placement only works when the podcast reaches the microphone (speaker, not headphones). The word
+lookup does not need that — it matches what *you* said.
 
 ## The rest of the loop
 
+- **Timestamps** — tap one to jump back to that moment (YouTube and Spotify links are built
+  properly; anything else gets `#t=seconds`).
+- **Re-match my words** — after adding or replacing a transcript, every word already caught for
+  that episode gets its sentence, timestamp and spelling refreshed.
 - **Paste a list of words** — for words dictated into a note or a Siri shortcut.
-- **Paste a transcript** — paste the episode transcript from Spotify / Apple Podcasts /
-  YouTube; Earshot finds each word in it, pulls the real sentence, and repairs spellings the
-  microphone got wrong (`meticulus` → `meticulous`).
 - **Copy words for Claude** → paste into a Claude chat → paste the JSON reply back to fill in
   meaning, IPA, part of speech and an example.
 - **Download backup** — a JSON file of everything, restorable on another device.
-- **Run microphone check** — reports exactly which step the browser refuses, instead of
-  failing silently.
+- **Run microphone check** — reports exactly which step the browser refuses.
 
 ---
 
 ## The code
 
-Three files, no build step, no dependencies.
+Four files, no build step, no dependencies.
 
 | File | What's in it |
 |---|---|
 | `index.html` | markup and the head (fonts, manifest, icons) |
 | `styles.css` | design tokens at the top — colors, light and dark themes — then components |
-| `app.js` | one IIFE, sectioned: storage → entries → rendering → speech → transcript → diagnostics |
+| `app.js` | one IIFE, sectioned: storage → transcript index → entries → rendering → speech → episodes → tools → diagnostics |
 | `sw.js` | service worker for offline. **Bump `CACHE` when you change the other files** |
 
-Data model — one entry per caught word, in `localStorage` under `earshot.v1`:
+### Data model
+
+Stored in `localStorage` under `earshot.v2`. A `earshot.v1` list from an older build is migrated
+automatically into an episode called *Earlier words*.
 
 ```js
 {
-  id: "w1a2b3c4",
-  word: "serendipity",
-  sentence: "It was pure serendipity that we met.",
-  source: "voice" | "typed",     // how it was captured
-  via: "transcript",             // set once the sentence came from a transcript
-  createdAt: 1755940000000,
-  updatedAt: 1755940000000,
-  meaning: "", example: "", ipa: "", pos: ""
+  v: 2,
+  activeId: "ep-1a2b",              // the episode you are listening to now
+  episodes: [{
+    id: "ep-1a2b",
+    title: "Housing Market #42",
+    url: "https://youtube.com/watch?v=...",   // optional, makes timestamps tappable
+    transcript: "…",                          // raw pasted text
+    createdAt, updatedAt
+  }],
+  entries: [{
+    id: "w1a2b3c4",
+    kind: "word",                   // "word" | "note"
+    episodeId: "ep-1a2b",
+    word: "meticulous",
+    heardAs: "meticulus",           // set when the transcript repaired the spelling
+    sentence: "It is, but the planning was not meticulous at all.",
+    t: 35,                          // seconds into the episode, or null
+    via: "transcript",              // where the sentence came from
+    source: "voice",                // how it was captured
+    createdAt, updatedAt,
+    meaning: "", example: "", ipa: "", pos: ""
+  }]
 }
 ```
 
+Notes use the same entry shape with `kind: "note"`, `text` instead of `word`, and `passage`
+instead of `sentence`.
+
+The transcript index is built on demand and never stored — `buildIndex()` turns raw text into
+`{sentences: [{text, t}], vocab: {word: count}}`. That's the piece to look at first if you want
+to improve matching.
+
 ### Ideas for where to take it next
 
+- **Automatic definitions** — one tap instead of the copy/paste loop. Needs a small backend to
+  hold an API key; this is the biggest quality-of-life win and your first server-side piece.
 - **Spaced repetition** — a `reviewedAt` / `strength` pair on each entry and a daily queue.
-- **Automatic definitions** — a dictionary API call (needs a small backend or a free API with
-  CORS enabled); this is the biggest quality-of-life win.
-- **Episode grouping** — store which podcast episode each word came from and review by episode.
-- **Audio snippet** — record 10 seconds around the capture so you can hear the word again.
-- **Native app** — the only way to listen while another app is in the foreground. Android can
-  do it with a foreground service; iOS needs a Mac, Xcode and an Apple developer account.
+- **Fetching transcripts** — YouTube captions can be pulled server-side (Google blocks
+  datacenter IPs, so it's flaky); podcasts are easier — RSS gives you the MP3 and Whisper
+  transcribes an hour for a few cents.
+- **Share-sheet entry** — a Shortcut that sends the URL you're playing straight into a new episode.
+- **Phonetic matching** — match what you said against the transcript by sound rather than
+  spelling (Metaphone), which would catch the words edit distance misses.
+- **Native app** — the only way to listen while another app is in the foreground.
 
 ## Licence
 

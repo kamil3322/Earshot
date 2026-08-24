@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Earshot</title>
-<meta name="description" content="Catch English words you hear but do not know, with the sentence you heard them in.">
+<meta name="description" content="Catch English words and thoughts from what you are listening to, with the sentence you heard them in.">
 <meta name="theme-color" content="#F1F0ED" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#111017" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -19,6 +19,7 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+
 <div class="wrap">
 
   <header class="masthead">
@@ -33,12 +34,36 @@
   </header>
 
   <section class="deck">
+
+    <div class="episode">
+      <div class="ep-main">
+        <span class="cue">now listening to</span>
+        <strong id="ep-title">Nothing chosen</strong>
+        <span class="ep-meta" id="ep-meta">Load a transcript first and every word comes back spelled right</span>
+      </div>
+      <button class="ghost small" id="ep-toggle" type="button">Change</button>
+    </div>
+
+    <div class="ep-panel" id="ep-panel">
+      <div class="ep-list" id="ep-list"></div>
+      <form id="ep-form" autocomplete="off">
+        <input id="ep-name" type="text" placeholder="Episode or video title" aria-label="Episode title">
+        <input id="ep-url" type="url" inputmode="url" placeholder="Link — optional, makes timestamps tappable" aria-label="Episode link">
+        <textarea id="ep-transcript" placeholder="Paste the transcript here before you start listening. Timestamps and speaker names are fine." aria-label="Episode transcript"></textarea>
+        <div class="row">
+          <button class="primary" type="submit">Start this episode</button>
+          <button class="ghost" type="button" id="ep-cancel">Cancel</button>
+        </div>
+        <p class="result" id="ep-result" hidden></p>
+      </form>
+    </div>
+
     <div class="mic-row">
       <button class="mic" id="mic" aria-pressed="false">
         <span class="meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
         <span class="label">
           <strong id="mic-title">Start listening</strong>
-          <span id="mic-sub">Then say &ldquo;save&rdquo; + the word</span>
+          <span id="mic-sub">Say &ldquo;save&rdquo; + a word, or &ldquo;note that&rdquo; + a thought</span>
         </span>
       </button>
       <button class="ghost" id="toggle-hand" type="button">Type</button>
@@ -52,10 +77,14 @@
     <div id="notice-slot"></div>
 
     <form class="hand" id="hand" autocomplete="off">
+      <div class="seg" role="group" aria-label="What to add">
+        <button type="button" class="seg-btn" data-kind="word" aria-pressed="true">Word</button>
+        <button type="button" class="seg-btn" data-kind="note" aria-pressed="false">Note</button>
+      </div>
       <input id="hand-word" type="text" placeholder="Word or phrase" aria-label="Word or phrase">
       <textarea id="hand-sentence" placeholder="The sentence you heard (optional)" aria-label="Sentence you heard"></textarea>
       <div class="row">
-        <button class="primary" type="submit">Add word</button>
+        <button class="primary" type="submit" id="hand-submit">Add word</button>
         <button class="ghost" type="button" id="hand-cancel">Cancel</button>
       </div>
     </form>
@@ -63,9 +92,14 @@
 
   <div class="bar">
     <button class="chip" data-filter="all" aria-pressed="true">All</button>
+    <button class="chip" data-filter="word" aria-pressed="false">Words</button>
+    <button class="chip" data-filter="note" aria-pressed="false">Notes</button>
     <button class="chip" data-filter="pending" aria-pressed="false">No meaning</button>
-    <button class="chip" data-filter="done" aria-pressed="false">Learned</button>
-    <input class="search" id="search" type="search" placeholder="Search words" aria-label="Search words">
+    <input class="search" id="search" type="search" placeholder="Search" aria-label="Search words and notes">
+  </div>
+
+  <div class="bar tight">
+    <button class="chip" id="scope-toggle" aria-pressed="false">This episode only</button>
   </div>
 
   <div class="list" id="list"></div>
@@ -88,6 +122,22 @@
     </div>
 
     <div class="block">
+      <h2>This episode&rsquo;s transcript</h2>
+      <p>Add or replace the transcript for the episode you&rsquo;re on, then re-match &mdash; every word already caught gets its real sentence, its timestamp, and its correct spelling.</p>
+      <div class="row">
+        <button class="ghost" id="toggle-transcript" type="button">Update transcript</button>
+        <button class="ghost" id="rematch" type="button">Re-match my words</button>
+      </div>
+      <div class="paste" id="transcript">
+        <textarea id="transcript-box" placeholder="Paste the whole episode transcript." aria-label="Episode transcript"></textarea>
+        <div class="row">
+          <button class="primary" type="button" id="transcript-apply">Save transcript &amp; match</button>
+        </div>
+        <p id="transcript-result" class="result" hidden></p>
+      </div>
+    </div>
+
+    <div class="block">
       <h2>Words from your phone</h2>
       <p>Dictated words piling up in a note or a Siri shortcut? Paste them here, one per line. A dash lets you add the sentence too &mdash; <span class="miss">quandary &mdash; we were in a real quandary</span>.</p>
       <div class="row">
@@ -99,21 +149,6 @@
           <button class="primary" type="button" id="batch-apply">Add them all</button>
         </div>
         <p id="batch-result" class="result" hidden></p>
-      </div>
-    </div>
-
-    <div class="block">
-      <h2>Better context from the episode</h2>
-      <p>Spotify, Apple Podcasts and YouTube all publish a transcript. Paste one here and Earshot finds each of your words inside it &mdash; the exact sentence, correctly spelled, even when the microphone misheard you.</p>
-      <div class="row">
-        <button class="ghost" id="toggle-transcript" type="button">Paste a transcript</button>
-      </div>
-      <div class="paste" id="transcript">
-        <textarea id="transcript-box" placeholder="Paste the whole episode transcript — timestamps and speaker names are fine, they get stripped." aria-label="Paste episode transcript"></textarea>
-        <div class="row">
-          <button class="primary" type="button" id="transcript-apply">Find my words in it</button>
-        </div>
-        <p id="transcript-result" class="result" hidden></p>
       </div>
     </div>
 
@@ -130,7 +165,7 @@
 
     <div class="block">
       <h2>Microphone not working?</h2>
-      <p>Run the check below and copy the report &mdash; it says exactly which step iOS is refusing, instead of failing silently.</p>
+      <p>Run the check below and copy the report &mdash; it says exactly which step the browser is refusing, instead of failing silently.</p>
       <div class="row">
         <button class="ghost" id="diag-run" type="button">Run microphone check</button>
         <button class="ghost" id="diag-copy" type="button">Copy report</button>

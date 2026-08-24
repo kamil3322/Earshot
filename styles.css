@@ -248,3 +248,76 @@
   .toast.show{opacity:1;transform:translate(-50%,0)}
   @media (prefers-reduced-motion: reduce){.toast{transition:none}}
   .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---------- episode strip ---------- */
+.episode{
+  display:flex;align-items:center;gap:12px;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  padding:11px 13px;margin-bottom:10px;box-shadow:var(--shadow)
+}
+.ep-main{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.ep-main strong{font-size:15px;font-weight:600;letter-spacing:-.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ep-meta{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:10px;
+  letter-spacing:.04em;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ep-meta.good{color:var(--mint)}
+.ep-meta.warn{color:var(--live)}
+.ghost.small{font-size:12px;padding:0 11px}
+
+.ep-panel{display:none;flex-direction:column;gap:10px;margin-bottom:10px;
+  padding:14px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2)}
+.ep-panel.open{display:flex}
+.ep-panel input,.ep-panel textarea{
+  width:100%;background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  color:var(--ink);font:inherit;font-size:15px;padding:10px 12px
+}
+.ep-panel textarea{min-height:90px;resize:vertical;font-family:"Newsreader",Georgia,serif}
+.ep-panel input:focus,.ep-panel textarea:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
+.ep-panel form{display:flex;flex-direction:column;gap:10px}
+.ep-list{display:flex;flex-direction:column;gap:6px}
+.ep-list:empty{display:none}
+.ep-row{
+  display:flex;flex-direction:column;gap:2px;text-align:left;cursor:pointer;
+  background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 12px;
+  color:var(--ink);font:inherit
+}
+.ep-row.on{border-color:var(--accent);background:var(--accent-soft)}
+.ep-row:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ep-row-title{font-size:14px;font-weight:600}
+.ep-row-meta{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:10px;color:var(--muted)}
+
+/* ---------- segmented word / note ---------- */
+.seg{display:flex;gap:6px}
+.seg-btn{
+  flex:1;background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  padding:8px 10px;font:inherit;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer
+}
+.seg-btn[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.seg-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ---------- list grouping, notes, timestamps ---------- */
+.bar.tight{margin-top:-6px;margin-bottom:14px}
+.group{
+  font-family:"JetBrains Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--muted);margin:14px 0 -2px;font-weight:600
+}
+.list > .group:first-child{margin-top:0}
+
+.card.note{border-left:3px solid var(--mint)}
+.card .kind{
+  font-family:"JetBrains Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--mint)
+}
+.note-text{font-family:"Newsreader",Georgia,serif;font-size:18px;line-height:1.5;margin:6px 0 0;color:var(--ink)}
+.repair{
+  font-family:"JetBrains Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.04em;
+  color:var(--muted);margin:6px 0 0
+}
+.stamp{
+  font-family:"JetBrains Mono",ui-monospace,monospace;font-size:10px;font-variant-numeric:tabular-nums;
+  color:var(--accent);background:var(--accent-soft);padding:3px 6px;border-radius:5px;
+  text-decoration:none;letter-spacing:.02em
+}
+.stamp:hover{text-decoration:underline}
+.stamp.flat{color:var(--muted);background:transparent;padding:3px 0}
+.stamp:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
