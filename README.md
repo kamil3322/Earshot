@@ -147,6 +147,21 @@ Four files, no build step, no dependencies.
 | `app.js` | one IIFE, sectioned: storage → transcript index → entries → helpers → views → speech → actions → tools |
 | `sw.js` | service worker for offline. **Bump `CACHE` when you change the other files** |
 
+### Words that come back
+
+Every transcript you paste is a sample of the English you actually consume — so a word saved
+once can be spotted turning up again in something else you queued. That happens automatically:
+
+- queue a new episode and it says which of your saved words appear in it, before you listen
+- the episode page lists them with timestamps into the new episode
+- each word card shows where else it came up, with the sentence
+
+This is the review loop the app is built around: repetition scheduled by what you were going to
+listen to anyway, rather than by a flashcard algorithm.
+
+`buildSightings()` does one pass over episodes × saved words, gated by an O(1) check against
+each transcript's vocabulary map, and caches until `save()` invalidates it.
+
 ### The three tabs
 
 **Listen** is the queue. Each row shows length, whether the transcript is loaded, and how much

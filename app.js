@@ -12,7 +12,7 @@
 (function(){
   "use strict";
 
-  var VERSION = "3.0";
+  var VERSION = "3.1";
   var KEY = "earshot.v3", KEY_V2 = "earshot.v2", KEY_V1 = "earshot.v1";
   var SEED = {};                       // definitions Claude can seed on republish
 
@@ -86,6 +86,7 @@
   }
 
   function save(){
+    forgetSightings();
     try{ localStorage.setItem(KEY, JSON.stringify(store)); }catch(e){}
   }
 
@@ -281,6 +282,64 @@
     return bestScore >= 1.2 ? best : null;
   }
 
+  /* ---- re-encounters -------------------------------------------------
+     Every transcript you paste is a sample of the English you actually
+     consume, so a word you saved once can be spotted turning up again in
+     something else you queued. One pass builds word -> [{episode, time}];
+     the vocabulary map makes the first check O(1) so this stays cheap. */
+  var sightings = null;
+
+  function inVocab(idx, w){
+    return !!(idx.vocab[w] || idx.vocab[w+"s"] || idx.vocab[w+"es"] ||
+              idx.vocab[w+"ed"] || idx.vocab[w+"d"] || idx.vocab[w+"ing"]);
+  }
+
+  function buildSightings(){
+    if(sightings) return sightings;
+    sightings = {};
+    var words = {};
+    store.entries.forEach(function(e){ if(e.kind !== "note" && e.word) words[e.word] = 1; });
+    var list = Object.keys(words);
+    if(!list.length) return sightings;
+
+    store.episodes.forEach(function(ep){
+      var idx = indexFor(ep);
+      if(!idx) return;
+      list.forEach(function(w){
+        if(!inVocab(idx, w)) return;
+        var hit = findInIndex(idx, w);
+        if(!hit) return;
+        (sightings[w] = sightings[w] || []).push({ epId:ep.id, t:hit.t, sentence:clipAround(hit.text, w) });
+      });
+    });
+    return sightings;
+  }
+
+  function forgetSightings(){ sightings = null; }
+
+  /* other episodes where this saved word also appears */
+  function alsoIn(entry){
+    if(entry.kind === "note" || !entry.word) return [];
+    return (buildSightings()[entry.word] || []).filter(function(x){
+      return x.epId !== entry.episodeId && episodeById(x.epId);
+    });
+  }
+
+  /* words saved elsewhere that turn up in this episode */
+  function turnUpIn(ep){
+    var s = buildSightings(), first = {}, out = [];
+    store.entries.forEach(function(e){
+      if(e.kind === "note" || e.episodeId === ep.id) return;
+      if(!first[e.word]) first[e.word] = e;
+    });
+    Object.keys(first).forEach(function(w){
+      (s[w] || []).forEach(function(x){
+        if(x.epId === ep.id) out.push({ entry:first[w], t:x.t, sentence:x.sentence });
+      });
+    });
+    return out.sort(function(a,b){ return (a.t||0) - (b.t||0); });
+  }
+
   function clipAround(s, word){
     if(s.length <= 260) return s;
     var i = s.toLowerCase().indexOf(String(word).toLowerCase());
@@ -432,6 +491,8 @@
     var notes = mine.length - words;
     if(words) bits.push('<span class="strong">' + words + (words === 1 ? " word" : " words") + "</span>");
     if(notes) bits.push("<span>" + notes + (notes === 1 ? " note" : " notes") + "</span>");
+    var again = idx ? turnUpIn(ep).length : 0;
+    if(again) bits.push('<span class="again">' + again + " of yours</span>");
     return bits.join('<span class="sep">·</span>');
   }
 
@@ -608,6 +669,22 @@
         : '<div class="empty">No words caught here yet.</div>';
     }
 
+    var coming = idx ? turnUpIn(ep) : [];
+    if(coming.length){
+      html += '<div class="block"><h3>Your words turn up here</h3>' +
+        "<p>" + coming.length + (coming.length === 1 ? " word you" : " words you") +
+        " saved elsewhere " + (coming.length === 1 ? "appears" : "appear") +
+        " in this episode. Worth a look before you press play.</p>" +
+        '<div class="list">' + coming.map(function(c){
+          return '<article class="card again-card">' +
+            '<div class="head"><span class="word small">' + esc(c.entry.word) + "</span>" +
+            stampHTML(ep, c.t) +
+            (c.entry.meaning ? "" : '<span class="pending">meaning pending</span>') + "</div>" +
+            (c.entry.meaning ? '<p class="meaning small">' + esc(c.entry.meaning) + "</p>" : "") +
+            '<p class="quote">&ldquo;' + esc(c.sentence) + "&rdquo;</p></article>";
+        }).join("") + "</div></div>";
+    }
+
     if(idx){
       html += '<div class="block"><h3>Transcript</h3><p>' + idx.sentences.length + " sentences, " +
         idx.words + " distinct words" + (idx.timestamps ? ", timestamps" : ", no timestamps") + ".</p>" +
@@ -721,6 +798,20 @@
     }).join("");
   }
 
+  function againHTML(e){
+    var also = alsoIn(e);
+    if(!also.length) return "";
+    var first = also[0], ep = episodeById(first.epId);
+    return '<div class="again-box"><div class="again-head">' +
+      '<svg width="13" height="13" viewBox="0 0 16 16" fill="none">' +
+      '<path d="M2.5 8 A5.5 5.5 0 1 1 4.6 12.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' +
+      '<path d="M2 4.5 V8 H5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      "<span>came up again in " + esc(ep.title) +
+      (also.length > 1 ? " +" + (also.length - 1) + " more" : "") + "</span>" +
+      stampHTML(ep, first.t) + "</div>" +
+      '<p class="quote soft">&ldquo;' + esc(first.sentence) + "&rdquo;</p></div>";
+  }
+
   function cardHTML(e, ep){
     var footEnd = '<span class="grow"></span>' +
       '<button data-act="edit-entry" data-id="' + esc(e.id) + '">Edit</button>' +
@@ -742,6 +833,7 @@
       (e.meaning ? '<p class="meaning">' + esc(e.meaning) + "</p>" : "") +
       (e.sentence ? '<p class="quote">&ldquo;' + esc(e.sentence) + "&rdquo;</p>" : "") +
       (e.example ? '<p class="example">' + esc(e.example) + "</p>" : "") +
+      againHTML(e) +
       '<div class="foot">' + stampHTML(ep, e.t) + "<span>" + when(e.createdAt) + "</span>" +
       "<span>" + (e.via === "transcript" ? "transcript" : e.source === "voice" ? "voice" : "typed") + "</span>" +
       footEnd + "</article>";
@@ -989,10 +1081,10 @@
 
   var actions = {
     tab: function(el){
-      ui.settings = false; ui.ep = null; ui.form = null; ui.panel = null; ui.q = "";
+      ui.settings = false; ui.ep = null; ui.form = null; ui.panel = null; ui.q = ""; ui.notice = "";
       ui.tab = el.dataset.tab; render();
     },
-    back: function(){ ui.settings = false; ui.ep = null; ui.form = null; ui.panel = null; render(); },
+    back: function(){ ui.settings = false; ui.ep = null; ui.form = null; ui.panel = null; ui.notice = ""; render(); },
     settings: function(){ ui.settings = true; render(); },
 
     mic: function(){ wantListening ? stopListening() : startListening(); },
@@ -1032,12 +1124,24 @@
       if(isNew){
         store.activeId = ep.id; save();
         ui.form = null;
+        var coming = turnUpIn(ep);
+        if(coming.length){
+          notice("<b>" + coming.length + "</b> " + (coming.length === 1 ? "word you" : "words you") +
+            " saved before " + (coming.length === 1 ? "turns" : "turn") + " up in this episode: " +
+            "<b>" + coming.slice(0,6).map(function(c){ return esc(c.entry.word); }).join(", ") + "</b>" +
+            (coming.length > 6 ? " and " + (coming.length - 6) + " more" : "") + ".");
+        }
         toast("Queued “" + ep.title + "”");
         render();
       }else{
         ui.form = null;
-        if(changed && transcript) rematch(ep);
-        else { toast("Saved"); render(); }
+        if(changed && transcript){
+          rematch(ep);
+          var back = turnUpIn(ep);
+          if(back.length) notice(ui.notice + " <b>" + back.length + "</b> of your older " +
+            (back.length === 1 ? "word turns" : "words turn") + " up in this one too.");
+          render();
+        }else{ toast("Saved"); render(); }
       }
     },
 
