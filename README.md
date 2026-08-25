@@ -78,6 +78,38 @@ Auto-generated captions arrive as short unpunctuated lines with the timestamp on
 `buildIndex()` detects that and groups them into ~20-word passages instead of splitting on
 sentence endings, keeping each group's start time.
 
+### Fetching it automatically — `tools/earshot-transcript.py`
+
+A server can't do this reliably (YouTube refuses datacenter IPs) but your Mac can, because it
+looks like an ordinary viewer.
+
+```bash
+brew install yt-dlp                     # once
+
+python3 tools/earshot-transcript.py "https://www.youtube.com/watch?v=..."
+```
+
+It prints the title and copies a clean timestamped transcript to your clipboard:
+
+```
+[0:03] so the whole rollout last year was frankly a debacle nobody involved was
+[0:15] and the climb back since then has been gruelling for a lot of the smaller
+```
+
+YouTube's rolling duplicate lines and inline timing tags are stripped, and the lines are grouped
+into ~20-word blocks so the sentences you save read properly.
+
+Set your address once and it can open the app with the episode half-filled:
+
+```bash
+echo 'export EARSHOT_URL="https://YOUR-NAME.github.io/earshot/"' >> ~/.zshrc
+
+python3 tools/earshot-transcript.py --open "https://youtu.be/..."
+```
+
+Useful flags: `--lang "en.*,pl.*"`, `--words 30`, `--out episode.txt`, `--no-copy`.
+It works for anything yt-dlp supports, not only YouTube.
+
 ## The rest of the loop
 
 - **Timestamps** — tap one to jump back to that moment (YouTube and Spotify links are built

@@ -149,7 +149,7 @@
        sentence endings there is nothing to split on, so group the lines instead
        and keep the timestamp of the line each group starts at. */
     var punct = chunks.filter(function(c){ return /[.!?]/.test(c.text); }).length;
-    if(chunks.length > 6 && punct < chunks.length * 0.15){
+    if(chunks.length >= 2 && punct < chunks.length * 0.15){
       return finishIndex(groupChunks(chunks));
     }
 
@@ -1242,7 +1242,21 @@
     if(params.get("note")){
       if(addNote(params.get("note"), "typed")) toast("Note saved");
     }
-    if(params.get("add") || params.get("note")) history.replaceState(null, "", location.pathname);
+    /* ?title=…&url=… — the Mac transcript script opens Earshot like this, with
+       the transcript already on the clipboard and waiting to be pasted. */
+    var pTitle = params.get("title"), pUrl = params.get("url");
+    if(pTitle || pUrl){
+      $("#ep-panel").classList.add("open");
+      renderEpisodeList();
+      $("#ep-name").value = pTitle || "";
+      $("#ep-url").value = pUrl || "";
+      $("#ep-transcript").focus();
+      notice("Episode ready — paste the transcript below and tap <strong>Start this episode</strong>.");
+    }
+
+    if(params.get("add") || params.get("note") || pTitle || pUrl){
+      history.replaceState(null, "", location.pathname);
+    }
   }catch(e){}
 
   if(!SR){
