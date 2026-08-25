@@ -2,8 +2,11 @@
 
 Catch English words you hear but don't know — without pausing what you're listening to.
 
-Say **"save <word>"** while a podcast plays and Earshot stores the word together with the
-sentence it appeared in. Later you fill in the meanings and review the list.
+Queue an episode with its transcript, tap play, and say **"save <word>"** or **"note that …"**
+while it runs. Words come back correctly spelled, in the sentence you heard them in, with a
+timestamp that jumps you back to the moment.
+
+Three tabs: **Listen** (the queue), **Notes** (your own thoughts), **Words** (meanings and review).
 
 ---
 
@@ -141,45 +144,52 @@ Four files, no build step, no dependencies.
 |---|---|
 | `index.html` | markup and the head (fonts, manifest, icons) |
 | `styles.css` | design tokens at the top — colors, light and dark themes — then components |
-| `app.js` | one IIFE, sectioned: storage → transcript index → entries → rendering → speech → episodes → tools → diagnostics |
+| `app.js` | one IIFE, sectioned: storage → transcript index → entries → helpers → views → speech → actions → tools |
 | `sw.js` | service worker for offline. **Bump `CACHE` when you change the other files** |
 
-### Managing episodes
+### The three tabs
 
-Tap **Change** to open the panel. Each episode has two controls: tap the row to switch to it,
-or tap **Edit** to load it into the form — title, link and transcript, all editable, for any
-episode, not only the one you're listening to. **Delete this episode** sits under the form and
-removes it along with everything caught in it, after confirming.
+**Listen** is the queue. Each row shows length, whether the transcript is loaded, and how much
+you already caught in it. Tap the **play button** to make it the live episode and start the
+microphone in one move; tap the **row itself** to open the episode. Rows with no transcript
+show **Add** instead of play. Finished episodes collapse into a section at the bottom.
 
-Editing an episode's transcript re-matches its words automatically, so the normal workflow is
-fine: catch words first, add the transcript afterwards, and every word gets its sentence,
-timestamp and correct spelling.
+**The episode page** is where notes live: a compose box above the list, a Notes / Words switch,
+and the transcript controls. **Edit** (top right) opens title, link and transcript; saving a
+changed transcript re-matches that episode's words automatically.
+
+**Notes** collects every note across episodes, grouped by episode, with search. **Words** is the
+review list with its filters and the Claude round-trip. Settings (batch import, backup, the
+microphone check) sits behind the gear.
 
 ### Deploying safely
 
 `app.js` and `index.html` must ship together. If a new `app.js` runs against an older
 `index.html` — a partial upload, or a stale service-worker cache — it will reference elements
-that don't exist. `on(sel, ev, fn)` exists for exactly this: a missing element logs a warning and
-leaves that one control inert instead of throwing and killing every listener after it.
+that don't exist. The whole UI renders from state into `#view`, and every control is reached by delegation on a
+`data-act` attribute — so a control that disappears from a template can no longer break the ones
+after it. Add a control by adding markup with `data-act="thing"` and a matching entry in the
+`actions` table; there is nothing to bind.
 
-The version shows in the status line at the bottom of the app (`v2.1`), so you can always tell
+The version shows in Settings, at the bottom (`v3.0`), so you can always tell
 which build a device is actually running. Bump `VERSION` in `app.js` and `CACHE` in `sw.js`
 together when you deploy.
 
 ### Data model
 
-Stored in `localStorage` under `earshot.v2`. A `earshot.v1` list from an older build is migrated
-automatically into an episode called *Earlier words*.
+Stored in `localStorage` under `earshot.v3`. Older `earshot.v2` and `earshot.v1` data migrates
+automatically; a flat v1 list lands in an episode called *Earlier words*.
 
 ```js
 {
-  v: 2,
+  v: 3,
   activeId: "ep-1a2b",              // the episode you are listening to now
   episodes: [{
     id: "ep-1a2b",
     title: "Housing Market #42",
     url: "https://youtube.com/watch?v=...",   // optional, makes timestamps tappable
-    transcript: "…",                          // raw pasted text
+    transcript: "…",                          // raw pasted text, or a raw .vtt file
+    status: "queued",               // "queued" | "done"
     createdAt, updatedAt
   }],
   entries: [{
