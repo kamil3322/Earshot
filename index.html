@@ -46,12 +46,18 @@
 
     <div class="ep-panel" id="ep-panel">
       <div class="ep-list" id="ep-list"></div>
+      <div class="row" id="ep-actions" hidden>
+        <button class="ghost small" id="ep-rename" type="button">Rename</button>
+        <button class="ghost small" id="ep-clear" type="button">Clear transcript</button>
+        <button class="ghost small danger" id="ep-delete" type="button">Delete episode</button>
+      </div>
       <form id="ep-form" autocomplete="off">
         <input id="ep-name" type="text" placeholder="Episode or video title" aria-label="Episode title">
         <input id="ep-url" type="url" inputmode="url" placeholder="Link — optional, makes timestamps tappable" aria-label="Episode link">
         <textarea id="ep-transcript" placeholder="Paste the transcript here before you start listening. Timestamps and speaker names are fine." aria-label="Episode transcript"></textarea>
         <div class="row">
           <button class="primary" type="submit">Start this episode</button>
+          <button class="ghost" type="button" id="ep-paste">Paste from clipboard</button>
           <button class="ghost" type="button" id="ep-cancel">Cancel</button>
         </div>
         <p class="result" id="ep-result" hidden></p>
@@ -129,9 +135,10 @@
         <button class="ghost" id="rematch" type="button">Re-match my words</button>
       </div>
       <div class="paste" id="transcript">
-        <textarea id="transcript-box" placeholder="Paste the whole episode transcript." aria-label="Episode transcript"></textarea>
+        <textarea id="transcript-box" placeholder="Paste the whole episode transcript — plain text or a raw .vtt caption file both work." aria-label="Episode transcript"></textarea>
         <div class="row">
           <button class="primary" type="button" id="transcript-apply">Save transcript &amp; match</button>
+          <button class="ghost" type="button" id="transcript-paste">Paste from clipboard</button>
         </div>
         <p id="transcript-result" class="result" hidden></p>
       </div>

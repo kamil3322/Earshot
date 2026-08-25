@@ -110,6 +110,15 @@ python3 tools/earshot-transcript.py --open "https://youtu.be/..."
 Useful flags: `--lang "en.*,pl.*"`, `--words 30`, `--out episode.txt`, `--no-copy`.
 It works for anything yt-dlp supports, not only YouTube.
 
+### One tap from the phone — `tools/ios-shortcut.md`
+
+A Shortcut isn't a browser, so CORS doesn't apply, and it runs on your home connection rather
+than a datacenter, so YouTube doesn't block it. Share a video → captions fetched → Earshot opens
+with the episode filled in and the transcript on the clipboard.
+
+The Shortcut only fetches; Earshot does the parsing, which is why `buildIndex()` accepts a raw
+`.vtt` caption file as well as plain text. Full build steps in `tools/ios-shortcut.md`.
+
 ## The rest of the loop
 
 - **Timestamps** — tap one to jump back to that moment (YouTube and Spotify links are built
@@ -134,6 +143,23 @@ Four files, no build step, no dependencies.
 | `styles.css` | design tokens at the top — colors, light and dark themes — then components |
 | `app.js` | one IIFE, sectioned: storage → transcript index → entries → rendering → speech → episodes → tools → diagnostics |
 | `sw.js` | service worker for offline. **Bump `CACHE` when you change the other files** |
+
+### Managing episodes
+
+Tap **Change** → the actions row under the episode list acts on the *active* episode:
+**Rename**, **Clear transcript** (keeps the words, drops the transcript link), and
+**Delete episode** (removes the episode and everything caught in it, after confirming).
+
+### Deploying safely
+
+`app.js` and `index.html` must ship together. If a new `app.js` runs against an older
+`index.html` — a partial upload, or a stale service-worker cache — it will reference elements
+that don't exist. `on(sel, ev, fn)` exists for exactly this: a missing element logs a warning and
+leaves that one control inert instead of throwing and killing every listener after it.
+
+The version shows in the status line at the bottom of the app (`v2.1`), so you can always tell
+which build a device is actually running. Bump `VERSION` in `app.js` and `CACHE` in `sw.js`
+together when you deploy.
 
 ### Data model
 

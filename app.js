@@ -9,9 +9,19 @@
   /* Definitions Claude has filled in can be seeded here, keyed by lowercase word. */
   var SEED = {};
 
+  var VERSION = "2.1";
   var KEY = "earshot.v2";
   var KEY_V1 = "earshot.v1";
   var $ = function(s){ return document.querySelector(s); };
+
+  /* Bind by selector, and survive a missing element. Without this, one element
+     absent from the HTML (a half-deployed update, a stale cached index.html)
+     throws and every listener registered after it silently never binds. */
+  function on(sel, ev, fn){
+    var el = document.querySelector(sel);
+    if(!el){ console.warn("Earshot: no element for " + sel + " — that control is inert"); return; }
+    el.addEventListener(ev, fn);
+  }
 
   var store = { v:2, episodes:[], entries:[], activeId:null };
   var filter = "all";
@@ -79,11 +89,12 @@
     writeStore();
     var w = store.entries.filter(function(e){ return e.kind !== "note"; }).length;
     var n = store.entries.length - w;
-    setSaved(w + (w === 1 ? " word" : " words") + (n ? ", " + n + (n === 1 ? " note" : " notes") : "") + " on this device");
+    setSaved(w + (w === 1 ? " word" : " words") + (n ? ", " + n + (n === 1 ? " note" : " notes") : "") + " on this device · v" + VERSION);
   }
 
   function setSaved(msg, warn){
     var dot = $("#sync-dot"), txt = $("#sync-text");
+    if(!dot || !txt) return;
     dot.className = "dot" + (warn ? " warn" : " ok");
     txt.textContent = msg;
   }
@@ -125,9 +136,50 @@
   var TIME_LEAD = /^\s*[\[\(]?(\d{1,2}:\d{2}(?::\d{2})?)[\]\)]?\s*/;
   var SPEAKER = /^\s*[A-Z][\w .'’-]{0,28}:\s+/;
 
+  var VTT_CUE = /(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->/;
+
+  /* Raw WebVTT, straight from a caption file. YouTube repeats the previous line
+     in each following cue and wraps words in timing tags — both are stripped. */
+  function parseVTT(raw){
+    var out = [], t = null;
+    String(raw).replace(/\r/g, "").split("\n").forEach(function(line){
+      line = line.trim();
+      if(!line || line === "WEBVTT") return;
+      if(/^(Kind|Language|NOTE|STYLE|REGION)\b/.test(line)) return;
+
+      var m = line.match(VTT_CUE);
+      if(m){
+        t = (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) + (+m[4]) / 1000;
+        return;
+      }
+      if(/^\d+$/.test(line)) return;              // cue number
+      if(t === null) return;
+
+      var text = line.replace(/<[^>]+>/g, "")
+                     .replace(/&nbsp;/g, " ")
+                     .replace(/&amp;/g, "&")
+                     .replace(/&#39;|&apos;/g, "'")
+                     .replace(/&quot;/g, '"')
+                     .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+                     .replace(/\s+/g, " ")
+                     .trim();
+      if(!text) return;
+      if(out.length && out[out.length - 1].text === text) return;   // rolling duplicate
+      out.push({ text: text, t: Math.round(t) });
+    });
+    return out;
+  }
+
   /* Turn raw transcript text into timestamped sentences plus a vocabulary. */
   function buildIndex(raw){
-    var lines = String(raw || "").replace(/\r/g, "").split("\n");
+    var src = String(raw || "");
+
+    if(/^\s*WEBVTT/.test(src) || VTT_CUE.test(src)){
+      var cues = parseVTT(src);
+      if(cues.length) return finishIndex(groupChunks(cues));
+    }
+
+    var lines = src.replace(/\r/g, "").split("\n");
     var chunks = [], lastT = null;
 
     lines.forEach(function(line){
@@ -470,6 +522,7 @@
 
   function render(){
     var list = $("#list");
+    if(!list) return;
     var shown = visibleEntries();
     var words = store.entries.filter(function(e){ return e.kind !== "note"; });
 
@@ -503,6 +556,7 @@
   function renderEpisodeStrip(){
     var ep = activeEpisode();
     var idx = indexFor(ep);
+    if(!$("#ep-title") || !$("#ep-meta")) return;
     $("#ep-title").textContent = ep ? ep.title : "Nothing chosen";
     var meta = $("#ep-meta");
     if(!ep){
@@ -530,6 +584,7 @@
     toastTimer = setTimeout(function(){ t.classList.remove("show"); }, 2400);
   }
   function notice(msg, warn){
+    if(!$("#notice-slot")) return;
     $("#notice-slot").innerHTML = '<div class="notice' + (warn ? " warn" : "") + '">' + msg + "</div>";
   }
 
@@ -711,7 +766,7 @@
     setMic(false);
   }
 
-  $("#mic").addEventListener("click", function(){
+  on("#mic", "click", function(){
     if(!SR){
       notice("This browser cannot listen. Chrome on Android or Safari on iOS work — or tap <strong>Type</strong> to add things by hand.", true);
       return;
@@ -729,6 +784,11 @@
 
   function renderEpisodeList(){
     var el = $("#ep-list");
+    if(!el) return;
+
+    var actions = $("#ep-actions");
+    if(actions) actions.hidden = !activeEpisode();
+
     if(!store.episodes.length){ el.innerHTML = ""; return; }
     var rows = store.episodes.slice().sort(function(a, b){ return (b.updatedAt||0) - (a.updatedAt||0); })
       .map(function(ep){
@@ -742,7 +802,50 @@
     el.innerHTML = '<div class="cue">episodes</div>' + rows;
   }
 
-  $("#ep-toggle").addEventListener("click", function(){
+  on("#ep-rename", "click", function(){
+    var ep = activeEpisode();
+    if(!ep) return;
+    var name = window.prompt("Episode title:", ep.title || "");
+    if(name === null) return;
+    name = name.trim();
+    if(!name) return;
+    ep.title = name;
+    ep.updatedAt = Date.now();
+    save(); render(); renderEpisodeList();
+    toast("Renamed");
+  });
+
+  on("#ep-clear", "click", function(){
+    var ep = activeEpisode();
+    if(!ep) return;
+    if(!ep.transcript){ toast("This episode has no transcript"); return; }
+    if(!window.confirm("Remove the transcript from “" + ep.title + "”?\n\nYour words and notes stay — they just lose the link to the transcript.")) return;
+    ep.transcript = "";
+    ep.updatedAt = Date.now();
+    delete indexes[ep.id];
+    save(); render(); renderEpisodeList();
+    toast("Transcript removed");
+  });
+
+  on("#ep-delete", "click", function(){
+    var ep = activeEpisode();
+    if(!ep) return;
+    var mine = store.entries.filter(function(e){ return e.episodeId === ep.id; });
+    var msg = mine.length
+      ? "Delete “" + ep.title + "” and the " + mine.length + " " +
+        (mine.length === 1 ? "item" : "items") + " caught in it?\n\nThis cannot be undone."
+      : "Delete “" + ep.title + "”?";
+    if(!window.confirm(msg)) return;
+
+    store.entries = store.entries.filter(function(e){ return e.episodeId !== ep.id; });
+    store.episodes = store.episodes.filter(function(e){ return e.id !== ep.id; });
+    delete indexes[ep.id];
+    store.activeId = store.episodes.length ? store.episodes[0].id : null;
+    save(); render(); renderEpisodeList();
+    toast("Deleted “" + ep.title + "”");
+  });
+
+  on("#ep-toggle", "click", function(){
     var p = $("#ep-panel");
     p.classList.toggle("open");
     if(p.classList.contains("open")){
@@ -750,9 +853,26 @@
       $("#ep-name").focus();
     }
   });
-  $("#ep-cancel").addEventListener("click", function(){ $("#ep-panel").classList.remove("open"); });
+  on("#ep-cancel", "click", function(){ $("#ep-panel").classList.remove("open"); });
 
-  $("#ep-list").addEventListener("click", function(ev){
+  on("#ep-paste", "click", async function(){
+    var out = $("#ep-result");
+    out.hidden = false;
+    try{
+      var text = await navigator.clipboard.readText();
+      if(!text || text.trim().length < 40){
+        out.textContent = "Nothing that looks like a transcript is on the clipboard.";
+        return;
+      }
+      $("#ep-transcript").value = text;
+      out.innerHTML = "Pasted <b>" + text.trim().split(/\s+/).length.toLocaleString() +
+        "</b> words — tap <b>Start this episode</b>.";
+    }catch(e){
+      out.textContent = "This browser would not hand over the clipboard — long-press the box and paste instead.";
+    }
+  });
+
+  on("#ep-list", "click", function(ev){
     var row = ev.target.closest("[data-ep]");
     if(!row) return;
     setActive(row.dataset.ep);
@@ -760,7 +880,7 @@
     toast("Now on “" + (activeEpisode() || {}).title + "”");
   });
 
-  $("#ep-form").addEventListener("submit", function(ev){
+  on("#ep-form", "submit", function(ev){
     ev.preventDefault();
     var title = $("#ep-name").value.trim();
     var url = $("#ep-url").value.trim();
@@ -811,14 +931,14 @@
     b.addEventListener("click", function(){ setHandKind(b.dataset.kind); });
   });
 
-  $("#toggle-hand").addEventListener("click", function(){
+  on("#toggle-hand", "click", function(){
     var h = $("#hand");
     h.classList.toggle("open");
     if(h.classList.contains("open")) (handKind === "note" ? $("#hand-sentence") : $("#hand-word")).focus();
   });
-  $("#hand-cancel").addEventListener("click", function(){ $("#hand").classList.remove("open"); });
+  on("#hand-cancel", "click", function(){ $("#hand").classList.remove("open"); });
 
-  $("#hand").addEventListener("submit", function(ev){
+  on("#hand", "submit", function(ev){
     ev.preventDefault();
     if(handKind === "note"){
       var note = addNote($("#hand-sentence").value, "typed");
@@ -846,18 +966,18 @@
     });
   });
 
-  $("#scope-toggle").addEventListener("click", function(){
+  on("#scope-toggle", "click", function(){
     scopeEpisode = !scopeEpisode;
     $("#scope-toggle").setAttribute("aria-pressed", scopeEpisode ? "true" : "false");
     render();
   });
 
-  $("#search").addEventListener("input", function(e){
+  on("#search", "input", function(e){
     query = e.target.value.trim().toLowerCase();
     render();
   });
 
-  $("#list").addEventListener("click", function(ev){
+  on("#list", "click", function(ev){
     var del = ev.target.closest("[data-del]");
     if(del){
       removeEntry(del.dataset.del);
@@ -898,7 +1018,7 @@
     }else fallback();
   }
 
-  $("#copy-words").addEventListener("click", function(){
+  on("#copy-words", "click", function(){
     var pending = store.entries.filter(function(e){ return e.kind !== "note" && !e.meaning; });
     if(!pending.length){ toast("Every word already has a meaning"); return; }
     var payload = pending.map(function(e){ return {word:e.word, heard_in:e.sentence}; });
@@ -910,13 +1030,13 @@
     copy(text, "Copied — paste it into Claude");
   });
 
-  $("#toggle-paste").addEventListener("click", function(){
+  on("#toggle-paste", "click", function(){
     var p = $("#paste");
     p.classList.toggle("open");
     if(p.classList.contains("open")) $("#paste-box").focus();
   });
 
-  $("#paste-apply").addEventListener("click", function(){
+  on("#paste-apply", "click", function(){
     var raw = $("#paste-box").value.trim();
     if(!raw){ toast("Paste Claude’s reply first"); return; }
     var start = raw.indexOf("["), end = raw.lastIndexOf("]");
@@ -945,7 +1065,7 @@
     }else toast("None of those words are in your list");
   });
 
-  $("#export").addEventListener("click", function(){
+  on("#export", "click", function(){
     if(!store.entries.length){ toast("Nothing to copy yet"); return; }
     var byEp = {};
     store.entries.forEach(function(e){
@@ -1018,7 +1138,7 @@
     if(matched) toast(matched + (matched === 1 ? " sentence updated" : " sentences updated"));
   }
 
-  $("#toggle-transcript").addEventListener("click", function(){
+  on("#toggle-transcript", "click", function(){
     var t = $("#transcript");
     t.classList.toggle("open");
     if(t.classList.contains("open")){
@@ -1028,7 +1148,7 @@
     }
   });
 
-  $("#transcript-apply").addEventListener("click", function(){
+  on("#transcript-apply", "click", function(){
     var ep = activeEpisode();
     var out = $("#transcript-result");
     out.hidden = false;
@@ -1043,20 +1163,39 @@
     rematch();
   });
 
-  $("#rematch").addEventListener("click", function(){
+  on("#transcript-paste", "click", async function(){
+    var out = $("#transcript-result");
+    try{
+      var text = await navigator.clipboard.readText();
+      if(!text || text.trim().length < 40){
+        out.hidden = false;
+        out.textContent = "Nothing that looks like a transcript is on the clipboard.";
+        return;
+      }
+      $("#transcript-box").value = text;
+      out.hidden = false;
+      out.innerHTML = "Pasted <b>" + text.trim().split(/\s+/).length.toLocaleString() +
+        "</b> words — tap <b>Save transcript &amp; match</b>.";
+    }catch(e){
+      out.hidden = false;
+      out.textContent = "This browser would not hand over the clipboard — long-press the box and paste instead.";
+    }
+  });
+
+  on("#rematch", "click", function(){
     $("#transcript").classList.add("open");
     rematch();
   });
 
   /* ============================ batch import ============================ */
 
-  $("#toggle-batch").addEventListener("click", function(){
+  on("#toggle-batch", "click", function(){
     var el = $("#batch");
     el.classList.toggle("open");
     if(el.classList.contains("open")) $("#batch-box").focus();
   });
 
-  $("#batch-apply").addEventListener("click", function(){
+  on("#batch-apply", "click", function(){
     var out = $("#batch-result");
     var lines = $("#batch-box").value.split(/[\n\r;]+/);
     var added = 0, skipped = 0;
@@ -1134,9 +1273,9 @@
     reader.readAsText(file);
   }
 
-  $("#backup").addEventListener("click", backup);
-  $("#restore").addEventListener("click", function(){ $("#restore-file").click(); });
-  $("#restore-file").addEventListener("change", function(ev){
+  on("#backup", "click", backup);
+  on("#restore", "click", function(){ $("#restore-file").click(); });
+  on("#restore-file", "change", function(ev){
     if(ev.target.files && ev.target.files[0]) restore(ev.target.files[0]);
     ev.target.value = "";
   });
@@ -1218,8 +1357,8 @@
     paint();
   }
 
-  $("#diag-run").addEventListener("click", function(){ runDiag(); });
-  $("#diag-copy").addEventListener("click", function(){
+  on("#diag-run", "click", function(){ runDiag(); });
+  on("#diag-copy", "click", function(){
     copy($("#diag-log").textContent, "Report copied — paste it to Claude");
   });
 
@@ -1251,7 +1390,9 @@
       $("#ep-name").value = pTitle || "";
       $("#ep-url").value = pUrl || "";
       $("#ep-transcript").focus();
-      notice("Episode ready — paste the transcript below and tap <strong>Start this episode</strong>.");
+      notice(params.get("paste")
+        ? "Episode ready — the transcript is on your clipboard. Long-press the transcript box and paste, then tap <strong>Start this episode</strong>."
+        : "Episode ready — paste the transcript below and tap <strong>Start this episode</strong>.");
     }
 
     if(params.get("add") || params.get("note") || pTitle || pUrl){
