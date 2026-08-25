@@ -147,6 +147,21 @@ Four files, no build step, no dependencies.
 | `app.js` | one IIFE, sectioned: storage → transcript index → entries → helpers → views → speech → actions → tools |
 | `sw.js` | service worker for offline. **Bump `CACHE` when you change the other files** |
 
+### Knowing a word
+
+A word carries three states, and only you can set the last one:
+
+1. **No meaning** — caught, not yet explained
+2. **Learning** — has a meaning, still being met
+3. **Known** — you marked it yours
+
+Tap **I know this** on any word that has a meaning. That number (`2 caught · 1 yours` in the
+Words masthead) is the honest one — a count of words caught measures capture, not learning.
+
+Marking a word known also takes it out of the re-encounter index, so the app stops surfacing it
+in new episodes. Without that, the feature slowly turns into noise as your list grows. The mark
+is reversible.
+
 ### Words that come back
 
 Every transcript you paste is a sample of the English you actually consume — so a word saved

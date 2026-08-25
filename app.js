@@ -12,7 +12,7 @@
 (function(){
   "use strict";
 
-  var VERSION = "3.1";
+  var VERSION = "3.2";
   var KEY = "earshot.v3", KEY_V2 = "earshot.v2", KEY_V1 = "earshot.v1";
   var SEED = {};                       // definitions Claude can seed on republish
 
@@ -298,7 +298,8 @@
     if(sightings) return sightings;
     sightings = {};
     var words = {};
-    store.entries.forEach(function(e){ if(e.kind !== "note" && e.word) words[e.word] = 1; });
+    // a word you have marked known no longer needs surfacing
+    store.entries.forEach(function(e){ if(e.kind !== "note" && e.word && !e.known) words[e.word] = 1; });
     var list = Object.keys(words);
     if(!list.length) return sightings;
 
@@ -320,6 +321,7 @@
   /* other episodes where this saved word also appears */
   function alsoIn(entry){
     if(entry.kind === "note" || !entry.word) return [];
+    if(entry.known) return [];
     return (buildSightings()[entry.word] || []).filter(function(x){
       return x.epId !== entry.episodeId && episodeById(x.epId);
     });
@@ -329,7 +331,7 @@
   function turnUpIn(ep){
     var s = buildSightings(), first = {}, out = [];
     store.entries.forEach(function(e){
-      if(e.kind === "note" || e.episodeId === ep.id) return;
+      if(e.kind === "note" || e.episodeId === ep.id || e.known) return;
       if(!first[e.word]) first[e.word] = e;
     });
     Object.keys(first).forEach(function(w){
@@ -542,7 +544,7 @@
     var words = store.entries.filter(function(e){ return e.kind !== "note"; });
 
     var html = mastheadHTML("Earshot", "catch · review",
-      '<div class="counts"><div><b>' + store.entries.length + "</b> caught</div>" +
+      '<div class="counts"><div><b>' + words.filter(function(e){ return e.known; }).length + "</b> yours</div>" +
       '<div><b>' + words.filter(function(e){ return !e.meaning; }).length + "</b> to explain</div></div>");
 
     if(live && wantListening) html += nowPlayingHTML(live);
@@ -731,15 +733,16 @@
     var words = store.entries.filter(function(e){ return e.kind !== "note"; });
     var pending = words.filter(function(e){ return !e.meaning; });
 
-    var html = mastheadHTML("Words", words.length + " caught",
+    var known = words.filter(function(e){ return e.known; }).length;
+    var html = mastheadHTML("Words", words.length + " caught · " + known + " yours",
       (pending.length
         ? '<button class="ghost small" data-act="copy-words">Explain ' + pending.length + "</button>"
         : '<button class="iconbtn" data-act="settings" aria-label="Settings">' +
           '<svg width="17" height="17" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="2.6" stroke="currentColor" stroke-width="1.5"/>' +
-          '<path d="M10 2.6 V5 M10 15 V17.4 M17.4 10 H15 M5 10 H2.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>'));
+          '<path d="M10 2.6 V5 M10 15 V17.4 M17.4 10 H15 M5 10 H2.6 M15.2 4.8 L13.5 6.5 M6.5 13.5 L4.8 15.2 M15.2 15.2 L13.5 13.5 M6.5 6.5 L4.8 4.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>'));
 
     html += '<input class="search" data-act="search" type="search" placeholder="Search words" value="' + esc(ui.q) + '" aria-label="Search words">';
-    html += '<div class="chips">' + chipHTML("wordFilter", [["all","All"],["pending","No meaning"],["done","Learned"]]) + "</div>";
+    html += '<div class="chips">' + chipHTML("wordFilter", [["all","All"],["pending","No meaning"],["learning","Learning"],["known","Known"]]) + "</div>";
     html += noticeHTML();
 
     if(ui.panel === "defs"){
@@ -764,7 +767,8 @@
     var words = store.entries.filter(function(e){
       if(e.kind === "note") return false;
       if(ui.wordFilter === "pending" && e.meaning) return false;
-      if(ui.wordFilter === "done" && !e.meaning) return false;
+      if(ui.wordFilter === "learning" && (!e.meaning || e.known)) return false;
+      if(ui.wordFilter === "known" && !e.known) return false;
       if(q && (e.word + " " + e.sentence + " " + e.meaning).toLowerCase().indexOf(q) === -1) return false;
       return true;
     });
@@ -776,7 +780,7 @@
   }
 
   function groupedHTML(items){
-    var html = "", lastEp = " ";
+    var html = "", lastEp = "\u0000-none";
     items.forEach(function(e){
       if(e.episodeId !== lastEp){
         lastEp = e.episodeId;
@@ -796,6 +800,20 @@
       return '<button class="chip" data-act="filter" data-key="' + key + '" data-val="' + o[0] + '" aria-pressed="' +
         (ui[key] === o[0]) + '">' + o[1] + "</button>";
     }).join("");
+  }
+
+  /* The one thing only you can judge: whether the word is yours now.
+     Marking it stops the re-encounter feature from surfacing it again. */
+  function knowHTML(e){
+    if(e.known){
+      return '<button class="knownchip" data-act="toggle-known" data-id="' + esc(e.id) + '" ' +
+        'aria-pressed="true" title="Mark as still learning">' +
+        '<svg width="11" height="11" viewBox="0 0 12 12" fill="none">' +
+        '<path d="M2.5 6.4 L4.7 8.6 L9.5 3.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+        "known</button>";
+    }
+    if(!e.meaning) return "";      // nothing to claim to know yet
+    return '<button class="knowbtn" data-act="toggle-known" data-id="' + esc(e.id) + '" aria-pressed="false">I know this</button>';
   }
 
   function againHTML(e){
@@ -824,10 +842,11 @@
         '<div class="foot">' + stampHTML(ep, e.t) + "<span>" + when(e.createdAt) + "</span>" +
         "<span>" + (e.source === "voice" ? "spoken" : "typed") + "</span>" + footEnd + "</article>";
     }
-    return '<article class="card">' +
+    return '<article class="card' + (e.known ? " known" : "") + '">' +
       '<div class="head"><span class="word">' + esc(e.word) + "</span>" +
       (e.ipa ? '<span class="ipa">' + esc(e.ipa) + "</span>" : "") +
       (e.pos ? '<span class="pos">' + esc(e.pos) + "</span>" : (e.meaning ? "" : '<span class="pending">meaning pending</span>')) +
+      knowHTML(e) +
       "</div>" +
       (e.heardAs ? '<p class="repair">heard as &ldquo;' + esc(e.heardAs) + "&rdquo;</p>" : "") +
       (e.meaning ? '<p class="meaning">' + esc(e.meaning) + "</p>" : "") +
@@ -1205,6 +1224,17 @@
       e.updatedAt = Date.now();
       save(); render();
     },
+    "toggle-known": function(el){
+      var e = store.entries.filter(function(x){ return x.id === el.dataset.id; })[0];
+      if(!e) return;
+      e.known = !e.known;
+      e.knownAt = e.known ? Date.now() : null;
+      e.updatedAt = Date.now();
+      save();
+      toast(e.known ? "“" + e.word + "” is yours" : "Back to learning");
+      render();
+    },
+
     "del-entry": function(el){
       store.entries = store.entries.filter(function(x){ return x.id !== el.dataset.id; });
       save(); toast("Deleted"); render();

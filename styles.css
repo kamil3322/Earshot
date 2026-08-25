@@ -316,3 +316,18 @@ input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px;bo
 .again-card{border-left:3px solid var(--accent)}
 .word.small{font-size:19px}
 .meaning.small{font-size:15px;margin-top:8px}
+
+/* ---------------- "I know this" ---------------- */
+.knowbtn{
+  font-family:"JetBrains Mono",ui-monospace,monospace;font-size:9px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--muted);background:transparent;border:1px solid var(--line);
+  padding:5px 9px;border-radius:999px;cursor:pointer;min-height:30px
+}
+.knowbtn:hover{color:var(--mint);border-color:var(--mint)}
+.knownchip{
+  display:inline-flex;align-items:center;gap:5px;
+  font-family:"JetBrains Mono",ui-monospace,monospace;font-size:9px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--mint);background:transparent;border:1px solid var(--mint);
+  padding:5px 9px;border-radius:999px;cursor:pointer;min-height:30px
+}
+.card.known .word{color:var(--ink-soft)}
