@@ -146,9 +146,14 @@ Four files, no build step, no dependencies.
 
 ### Managing episodes
 
-Tap **Change** → the actions row under the episode list acts on the *active* episode:
-**Rename**, **Clear transcript** (keeps the words, drops the transcript link), and
-**Delete episode** (removes the episode and everything caught in it, after confirming).
+Tap **Change** to open the panel. Each episode has two controls: tap the row to switch to it,
+or tap **Edit** to load it into the form — title, link and transcript, all editable, for any
+episode, not only the one you're listening to. **Delete this episode** sits under the form and
+removes it along with everything caught in it, after confirming.
+
+Editing an episode's transcript re-matches its words automatically, so the normal workflow is
+fine: catch words first, add the transcript afterwards, and every word gets its sentence,
+timestamp and correct spelling.
 
 ### Deploying safely
 

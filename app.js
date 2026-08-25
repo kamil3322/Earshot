@@ -9,7 +9,7 @@
   /* Definitions Claude has filled in can be seeded here, keyed by lowercase word. */
   var SEED = {};
 
-  var VERSION = "2.1";
+  var VERSION = "2.2";
   var KEY = "earshot.v2";
   var KEY_V1 = "earshot.v1";
   var $ = function(s){ return document.querySelector(s); };
@@ -776,6 +776,8 @@
 
   /* ============================ episodes ============================ */
 
+  var editingId = null;        // episode being edited, or null when creating one
+
   function setActive(id){
     store.activeId = id;
     save();
@@ -785,50 +787,92 @@
   function renderEpisodeList(){
     var el = $("#ep-list");
     if(!el) return;
-
-    var actions = $("#ep-actions");
-    if(actions) actions.hidden = !activeEpisode();
-
     if(!store.episodes.length){ el.innerHTML = ""; return; }
-    var rows = store.episodes.slice().sort(function(a, b){ return (b.updatedAt||0) - (a.updatedAt||0); })
+
+    var rows = store.episodes.slice()
+      .sort(function(a, b){ return (b.updatedAt || 0) - (a.updatedAt || 0); })
       .map(function(ep){
         var idx = indexFor(ep);
         var count = store.entries.filter(function(e){ return e.episodeId === ep.id; }).length;
-        return '<button type="button" class="ep-row' + (ep.id === store.activeId ? " on" : "") +
-          '" data-ep="' + esc(ep.id) + '"><span class="ep-row-title">' + esc(ep.title) + "</span>" +
-          '<span class="ep-row-meta">' + count + (count === 1 ? " item" : " items") +
-          (idx ? " · transcript" : " · no transcript") + "</span></button>";
+        return '<div class="ep-row' + (ep.id === store.activeId ? " on" : "") +
+                 (ep.id === editingId ? " editing" : "") + '">' +
+          '<button type="button" class="ep-pick" data-ep="' + esc(ep.id) + '">' +
+            '<span class="ep-row-title">' + esc(ep.title) + "</span>" +
+            '<span class="ep-row-meta">' + count + (count === 1 ? " item" : " items") +
+              (idx ? " · " + idx.sentences.length + " sentences" : " · no transcript") +
+              (ep.id === store.activeId ? " · listening" : "") + "</span>" +
+          "</button>" +
+          '<button type="button" class="ep-edit" data-edit-ep="' + esc(ep.id) + '" ' +
+            'aria-label="Edit ' + esc(ep.title) + '">Edit</button>' +
+        "</div>";
       }).join("");
     el.innerHTML = '<div class="cue">episodes</div>' + rows;
   }
 
-  on("#ep-rename", "click", function(){
-    var ep = activeEpisode();
+  function resetEpisodeForm(keepResult){
+    editingId = null;
+    var name = $("#ep-name"), url = $("#ep-url"), tr = $("#ep-transcript");
+    if(name) name.value = "";
+    if(url) url.value = "";
+    if(tr) tr.value = "";
+    if($("#ep-form-title")) $("#ep-form-title").textContent = "new episode";
+    if($("#ep-submit")) $("#ep-submit").textContent = "Start this episode";
+    if($("#ep-actions")) $("#ep-actions").hidden = true;
+    if($("#ep-new")) $("#ep-new").hidden = true;
+    if($("#ep-result") && !keepResult) $("#ep-result").hidden = true;
+    renderEpisodeList();
+  }
+
+  function editEpisode(id){
+    var ep = episodeById(id);
     if(!ep) return;
-    var name = window.prompt("Episode title:", ep.title || "");
-    if(name === null) return;
-    name = name.trim();
-    if(!name) return;
-    ep.title = name;
-    ep.updatedAt = Date.now();
-    save(); render(); renderEpisodeList();
-    toast("Renamed");
+    editingId = id;
+    $("#ep-name").value = ep.title || "";
+    $("#ep-url").value = ep.url || "";
+    $("#ep-transcript").value = ep.transcript || "";
+    $("#ep-form-title").textContent = "editing";
+    $("#ep-submit").textContent = ep.id === store.activeId ? "Save changes" : "Save & listen to this";
+    $("#ep-actions").hidden = false;
+    $("#ep-new").hidden = false;
+    $("#ep-result").hidden = true;
+    $("#ep-panel").classList.add("open");
+    renderEpisodeList();
+    $("#ep-name").focus();
+  }
+
+  on("#ep-toggle", "click", function(){
+    var p = $("#ep-panel");
+    p.classList.toggle("open");
+    if(p.classList.contains("open")){
+      renderEpisodeList();
+      if(!editingId) $("#ep-name").focus();
+    }
   });
 
-  on("#ep-clear", "click", function(){
-    var ep = activeEpisode();
-    if(!ep) return;
-    if(!ep.transcript){ toast("This episode has no transcript"); return; }
-    if(!window.confirm("Remove the transcript from “" + ep.title + "”?\n\nYour words and notes stay — they just lose the link to the transcript.")) return;
-    ep.transcript = "";
-    ep.updatedAt = Date.now();
-    delete indexes[ep.id];
-    save(); render(); renderEpisodeList();
-    toast("Transcript removed");
+  on("#ep-cancel", "click", function(){
+    $("#ep-panel").classList.remove("open");
+    resetEpisodeForm();
+  });
+
+  on("#ep-new", "click", function(){
+    resetEpisodeForm();
+    $("#ep-name").focus();
+  });
+
+  on("#ep-list", "click", function(ev){
+    var edit = ev.target.closest("[data-edit-ep]");
+    if(edit){ editEpisode(edit.dataset.editEp); return; }
+
+    var pick = ev.target.closest("[data-ep]");
+    if(!pick) return;
+    setActive(pick.dataset.ep);
+    $("#ep-panel").classList.remove("open");
+    resetEpisodeForm();
+    toast("Now on “" + (activeEpisode() || {}).title + "”");
   });
 
   on("#ep-delete", "click", function(){
-    var ep = activeEpisode();
+    var ep = episodeById(editingId) || activeEpisode();
     if(!ep) return;
     var mine = store.entries.filter(function(e){ return e.episodeId === ep.id; });
     var msg = mine.length
@@ -840,20 +884,11 @@
     store.entries = store.entries.filter(function(e){ return e.episodeId !== ep.id; });
     store.episodes = store.episodes.filter(function(e){ return e.id !== ep.id; });
     delete indexes[ep.id];
-    store.activeId = store.episodes.length ? store.episodes[0].id : null;
-    save(); render(); renderEpisodeList();
+    if(store.activeId === ep.id) store.activeId = store.episodes.length ? store.episodes[0].id : null;
+    save(); render();
+    resetEpisodeForm();
     toast("Deleted “" + ep.title + "”");
   });
-
-  on("#ep-toggle", "click", function(){
-    var p = $("#ep-panel");
-    p.classList.toggle("open");
-    if(p.classList.contains("open")){
-      renderEpisodeList();
-      $("#ep-name").focus();
-    }
-  });
-  on("#ep-cancel", "click", function(){ $("#ep-panel").classList.remove("open"); });
 
   on("#ep-paste", "click", async function(){
     var out = $("#ep-result");
@@ -866,18 +901,10 @@
       }
       $("#ep-transcript").value = text;
       out.innerHTML = "Pasted <b>" + text.trim().split(/\s+/).length.toLocaleString() +
-        "</b> words — tap <b>Start this episode</b>.";
+        "</b> words — tap <b>" + $("#ep-submit").textContent + "</b>.";
     }catch(e){
       out.textContent = "This browser would not hand over the clipboard — long-press the box and paste instead.";
     }
-  });
-
-  on("#ep-list", "click", function(ev){
-    var row = ev.target.closest("[data-ep]");
-    if(!row) return;
-    setActive(row.dataset.ep);
-    $("#ep-panel").classList.remove("open");
-    toast("Now on “" + (activeEpisode() || {}).title + "”");
   });
 
   on("#ep-form", "submit", function(ev){
@@ -887,30 +914,48 @@
     var transcript = $("#ep-transcript").value.trim();
     var out = $("#ep-result");
 
-    if(!title && !url){ out.hidden = false; out.textContent = "Give it a title so you can find it later."; return; }
+    if(!title && !url){
+      out.hidden = false;
+      out.textContent = "Give it a title so you can find it later.";
+      return;
+    }
 
-    var ep = {
-      id: newId("ep"),
-      title: title || url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 60),
-      url: url,
-      transcript: transcript,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    };
-    store.episodes.unshift(ep);
+    var ep = episodeById(editingId);
+    var isNew = !ep;
+    if(isNew){
+      ep = { id: newId("ep"), createdAt: Date.now() };
+      store.episodes.unshift(ep);
+    }
+
+    var transcriptChanged = (ep.transcript || "") !== transcript;
+    ep.title = title || url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 60);
+    ep.url = url;
+    ep.transcript = transcript;
+    ep.updatedAt = Date.now();
     delete indexes[ep.id];
+
     setActive(ep.id);
-
     var idx = indexFor(ep);
-    out.hidden = false;
-    out.innerHTML = idx
-      ? "Ready — <b>" + idx.sentences.length + "</b> sentences indexed" +
-        (idx.timestamps ? ", timestamps found." : ", no timestamps in this one.")
-      : "Episode saved. Without a transcript, words are stored exactly as heard.";
 
-    $("#ep-name").value = ""; $("#ep-url").value = ""; $("#ep-transcript").value = "";
+    out.hidden = false;
+    if(!isNew && transcriptChanged && transcript){
+      rematch(ep, out);                  // fills in sentences for words already caught
+      resetEpisodeForm(true);
+      toast("Episode updated");
+      return;
+    }
+    out.innerHTML = idx
+      ? (isNew ? "Ready — <b>" : "Saved — <b>") + idx.sentences.length + "</b> sentences indexed" +
+        (idx.timestamps ? ", timestamps found." : ", no timestamps in this one.")
+      : (isNew ? "Episode saved. " : "Saved. ") + "Without a transcript, words are stored exactly as heard.";
+
+    var name = ep.title;
+    resetEpisodeForm(true);
     renderEpisodeList();
-    toast("Now on “" + ep.title + "”");
+    // Creating an episode means you are about to listen — get out of the way.
+    // Editing one means you want to see what changed, so the panel stays.
+    if(isNew) $("#ep-panel").classList.remove("open");
+    toast(isNew ? "Now on “" + name + "”" : "Saved “" + name + "”");
   });
 
   /* ============================ hand entry ============================ */
@@ -1091,9 +1136,10 @@
 
   /* ==================== transcript for this episode ==================== */
 
-  function rematch(){
-    var ep = activeEpisode();
-    var out = $("#transcript-result");
+  function rematch(epArg, outArg){
+    var ep = epArg || activeEpisode();
+    var out = outArg || $("#transcript-result");
+    if(!out) return;
     out.hidden = false;
     if(!ep){ out.textContent = "Choose an episode first."; return; }
     var idx = indexFor(ep);

@@ -46,19 +46,21 @@
 
     <div class="ep-panel" id="ep-panel">
       <div class="ep-list" id="ep-list"></div>
-      <div class="row" id="ep-actions" hidden>
-        <button class="ghost small" id="ep-rename" type="button">Rename</button>
-        <button class="ghost small" id="ep-clear" type="button">Clear transcript</button>
-        <button class="ghost small danger" id="ep-delete" type="button">Delete episode</button>
-      </div>
       <form id="ep-form" autocomplete="off">
+        <div class="ep-form-head">
+          <span class="cue" id="ep-form-title">new episode</span>
+          <button type="button" class="ghost small" id="ep-new" hidden>Start a new one</button>
+        </div>
         <input id="ep-name" type="text" placeholder="Episode or video title" aria-label="Episode title">
         <input id="ep-url" type="url" inputmode="url" placeholder="Link — optional, makes timestamps tappable" aria-label="Episode link">
         <textarea id="ep-transcript" placeholder="Paste the transcript here before you start listening. Timestamps and speaker names are fine." aria-label="Episode transcript"></textarea>
         <div class="row">
-          <button class="primary" type="submit">Start this episode</button>
+          <button class="primary" type="submit" id="ep-submit">Start this episode</button>
           <button class="ghost" type="button" id="ep-paste">Paste from clipboard</button>
-          <button class="ghost" type="button" id="ep-cancel">Cancel</button>
+          <button class="ghost" type="button" id="ep-cancel">Close</button>
+        </div>
+        <div class="row" id="ep-actions" hidden>
+          <button type="button" class="ghost small danger" id="ep-delete">Delete this episode</button>
         </div>
         <p class="result" id="ep-result" hidden></p>
       </form>
