@@ -12,7 +12,7 @@
 (function(){
   "use strict";
 
-  var VERSION = "3.2";
+  var VERSION = "3.3";
   var KEY = "earshot.v3", KEY_V2 = "earshot.v2", KEY_V1 = "earshot.v1";
   var SEED = {};                       // definitions Claude can seed on republish
 
@@ -487,7 +487,7 @@
     if(idx && idx.duration) bits.push("<span>" + fmtDuration(idx.duration) + "</span>");
     bits.push(idx
       ? '<span class="ok">transcript</span>'
-      : '<span class="bad">no transcript</span>');
+      : '<button class="linky" data-act="edit-ep" data-id="' + esc(ep.id) + '">+ transcript</button>');
     var mine = entriesOf(ep.id);
     var words = mine.filter(function(e){ return e.kind !== "note"; }).length;
     var notes = mine.length - words;
@@ -581,16 +581,15 @@
     var isLive = wantListening && ep.id === store.activeId;
     var idx = indexFor(ep);
     var cls = "eprow" + (isLive ? " live" : "") + (ep.status === "done" ? " done" : "");
-    var right;
-    if(isLive){
-      right = '<button class="play stop" data-act="stop" aria-label="Stop listening">' +
-        '<svg width="14" height="14" viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5" fill="var(--live)"/></svg></button>';
-    }else if(!idx){
-      right = '<button class="pill" data-act="edit-ep" data-id="' + esc(ep.id) + '">Add</button>';
-    }else{
-      right = '<button class="play" data-act="play" data-id="' + esc(ep.id) + '" aria-label="Listen to ' + esc(ep.title) + '">' +
-        '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M4.5 2.8 L13 8 L4.5 13.2 Z" fill="var(--on-accent)"/></svg></button>';
-    }
+    /* Play is always available. A missing transcript costs you spelling repair
+       and timestamps, not the ability to listen — plenty of podcasts have no
+       transcript at all, and you can always add one afterwards and re-match. */
+    var right = isLive
+      ? '<button class="play stop" data-act="stop" aria-label="Stop listening">' +
+        '<svg width="14" height="14" viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5" fill="var(--live)"/></svg></button>'
+      : '<button class="play' + (idx ? "" : " bare") + '" data-act="play" data-id="' + esc(ep.id) +
+        '" aria-label="Listen to ' + esc(ep.title) + '">' +
+        '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M4.5 2.8 L13 8 L4.5 13.2 Z" fill="currentColor"/></svg></button>';
     return '<div class="' + cls + '">' +
       '<button class="epopen" data-act="open-ep" data-id="' + esc(ep.id) + '">' +
         artHTML(ep) +
@@ -1263,11 +1262,19 @@
     "copy-words": function(){
       var pending = store.entries.filter(function(e){ return e.kind !== "note" && !e.meaning; });
       if(!pending.length){ toast("Every word already has a meaning"); return; }
-      var payload = pending.map(function(e){ return { word:e.word, heard_in:e.sentence }; });
-      copy("These are English words I heard but did not know. For each one give a short plain-English meaning " +
-        "(one or two sentences, matching how it is used in the sentence I heard), the IPA pronunciation, the part of speech, " +
-        "and one fresh example sentence.\n\nReply with ONLY a JSON array like " +
-        '[{"word":"","pos":"","ipa":"","meaning":"","example":""}] and nothing else.\n\n' +
+      var payload = pending.map(function(e){
+        var o = { word:e.word };
+        if(e.sentence) o.heard_in = e.sentence;
+        return o;
+      });
+      copy("These are English words I heard in a podcast but did not know. They were captured by speech " +
+        "recognition, so some are MISSPELLED — work out the real word from the spelling and any sentence " +
+        "given, and put it in \"corrected\". Keep \"word\" exactly as I sent it so I can match them up.\n\n" +
+        "For each one give a short plain-English meaning (one or two sentences, matching how it is used " +
+        "where I heard it), the IPA pronunciation, the part of speech, and one fresh example sentence. " +
+        "If a word is too garbled to identify, set \"corrected\" to \"?\" and leave the rest empty.\n\n" +
+        "Reply with ONLY a JSON array like " +
+        '[{"word":"","corrected":"","pos":"","ipa":"","meaning":"","example":""}] and nothing else.\n\n' +
         JSON.stringify(payload, null, 2), "Copied — paste it into Claude");
     },
 
@@ -1278,19 +1285,31 @@
       var data;
       try{ data = JSON.parse(raw.slice(a, b+1)); }catch(e){ toast("Could not read that JSON"); return; }
       if(!Array.isArray(data)){ toast("Expected a list"); return; }
-      var applied = 0;
+      var applied = 0, fixed = 0, unknown = 0;
       data.forEach(function(d){
         var w = cleanWord(d && d.word);
         if(!w) return;
+        var corrected = cleanWord(d && d.corrected);
+        if(corrected === "?" || (d && d.corrected === "?")){ unknown++; return; }
         var def = pickDef(d);
         store.entries.forEach(function(e){
-          if(e.kind !== "note" && e.word === w && (!e.meaning || def.meaning)){
-            Object.assign(e, def); e.updatedAt = Date.now(); applied++;
+          if(e.kind === "note" || e.word !== w) return;
+          if(e.meaning && !def.meaning) return;
+          if(corrected && corrected !== e.word){
+            e.heardAs = e.heardAs || e.word;    // keep what the microphone thought
+            e.word = corrected;
+            fixed++;
           }
+          Object.assign(e, def);
+          e.updatedAt = Date.now();
+          applied++;
         });
       });
-      if(!applied){ toast("None of those words are in your list"); return; }
+      if(!applied && !unknown){ toast("None of those words are in your list"); return; }
       save(); ui.panel = null;
+      notice("<b>" + applied + "</b> " + (applied === 1 ? "meaning" : "meanings") + " added" +
+        (fixed ? ", <b>" + fixed + "</b> " + (fixed === 1 ? "spelling" : "spellings") + " corrected" : "") +
+        (unknown ? ", " + unknown + " too garbled to identify" : "") + ".");
       toast(applied + (applied === 1 ? " meaning added" : " meanings added"));
       render();
     },

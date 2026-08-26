@@ -331,3 +331,11 @@ input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px;bo
   padding:5px 9px;border-radius:999px;cursor:pointer;min-height:30px
 }
 .card.known .word{color:var(--ink-soft)}
+
+.play{color:var(--on-accent)}
+.play.bare{background:transparent;border:1px solid var(--accent);color:var(--accent)}
+.linky{
+  background:none;border:0;padding:0;cursor:pointer;color:var(--accent);
+  font-family:"JetBrains Mono",ui-monospace,monospace;font-size:9.5px;letter-spacing:.04em;
+  text-decoration:underline;text-underline-offset:2px
+}

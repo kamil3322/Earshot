@@ -129,8 +129,11 @@ The Shortcut only fetches; Earshot does the parsing, which is why `buildIndex()`
 - **Re-match my words** — after adding or replacing a transcript, every word already caught for
   that episode gets its sentence, timestamp and spelling refreshed.
 - **Paste a list of words** — for words dictated into a note or a Siri shortcut.
-- **Copy words for Claude** → paste into a Claude chat → paste the JSON reply back to fill in
-  meaning, IPA, part of speech and an example.
+- **Copy for Claude** → paste into a Claude chat → paste the JSON reply back to fill in meaning,
+  IPA, part of speech and an example. The prompt also asks Claude to repair mishearings, so this
+  is how spelling gets fixed when there is no transcript — `meticulus` comes back as
+  **meticulous**, with the original kept as `heardAs`, and anything too garbled is reported
+  rather than guessed.
 - **Download backup** — a JSON file of everything, restorable on another device.
 - **Run microphone check** — reports exactly which step the browser refuses.
 
@@ -201,7 +204,7 @@ that don't exist. The whole UI renders from state into `#view`, and every contro
 after it. Add a control by adding markup with `data-act="thing"` and a matching entry in the
 `actions` table; there is nothing to bind.
 
-The version shows in Settings, at the bottom (`v3.0`), so you can always tell
+The version shows in Settings, at the bottom (`v3.3`), so you can always tell
 which build a device is actually running. Bump `VERSION` in `app.js` and `CACHE` in `sw.js`
 together when you deploy.
 
