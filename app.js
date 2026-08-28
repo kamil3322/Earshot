@@ -12,7 +12,7 @@
 (function(){
   "use strict";
 
-  var VERSION = "3.3";
+  var VERSION = "3.4";
   var KEY = "earshot.v3", KEY_V2 = "earshot.v2", KEY_V1 = "earshot.v1";
   var SEED = {};                       // definitions Claude can seed on republish
 
@@ -888,9 +888,9 @@
       '<p class="result" id="batch-result" hidden></p></div>' +
 
       '<div class="block"><h3>Your data</h3>' +
-      "<p>Everything lives on this device. Download a backup before clearing Safari&rsquo;s data, or to move to another phone.</p>" +
+      "<p>Everything lives on this device. Download a backup before clearing Safari&rsquo;s data &mdash; and use <b>Restore</b> to take in a queue file prepared on your Mac, which is how episodes and their transcripts get here without any typing.</p>" +
       '<div class="row"><button class="ghost" data-act="backup">Download backup</button>' +
-      '<button class="ghost" data-act="restore">Restore backup</button>' +
+      '<button class="ghost" data-act="restore">Restore / import</button>' +
       '<button class="ghost" data-act="export">Copy everything</button></div>' +
       '<input id="restore-file" type="file" accept="application/json,.json" hidden>' +
       '<p class="result" id="data-result" hidden></p></div>' +
@@ -1430,11 +1430,15 @@
       try{ data = JSON.parse(reader.result); }
       catch(e){ if(out){ out.hidden = false; out.textContent = "That is not a valid Earshot backup."; } return; }
       var incoming = Array.isArray(data) ? data : (data.entries || []);
-      if(!incoming.length){ if(out){ out.hidden = false; out.textContent = "No words in that file."; } return; }
-      var before = store.entries.length;
+      var incomingEps = (data.episodes || []).filter(function(e){ return e && e.id; });
+      if(!incoming.length && !incomingEps.length){
+        if(out){ out.hidden = false; out.textContent = "Nothing to import from that file."; }
+        return;
+      }
+      var before = store.entries.length, epsBefore = store.episodes.length;
       var known = {};
       store.episodes.forEach(function(e){ known[e.id] = 1; });
-      (data.episodes || []).forEach(function(e){ if(e && e.id && !known[e.id]) store.episodes.push(normEpisode(e)); });
+      incomingEps.forEach(function(e){ if(!known[e.id]) store.episodes.push(normEpisode(e)); });
       if(!(data.episodes || []).length){
         var legacy = episodeById("ep-earlier");
         if(!legacy){ legacy = normEpisode({ id:"ep-earlier", title:"Earlier words", createdAt:Date.now() }); store.episodes.push(legacy); }
@@ -1442,9 +1446,17 @@
       }
       store.entries = mergeEntries(store.entries, incoming);
       applySeed(); indexes = {}; save(); render();
+      var newEps = store.episodes.length - epsBefore, newWords = store.entries.length - before;
       var o = $("#data-result");
-      if(o){ o.hidden = false; o.innerHTML = "Restored — <b>" + (store.entries.length - before) + "</b> new, <b>" + store.entries.length + "</b> in total."; }
-      toast("Backup restored");
+      if(o){
+        o.hidden = false;
+        o.innerHTML = "Imported — " +
+          (newEps ? "<b>" + newEps + "</b> " + (newEps === 1 ? "episode" : "episodes") : "") +
+          (newEps && newWords ? ", " : "") +
+          (newWords ? "<b>" + newWords + "</b> " + (newWords === 1 ? "word" : "words") : "") +
+          (!newEps && !newWords ? "nothing new — you already had all of it" : "") + ".";
+      }
+      toast(newEps && !newWords ? newEps + (newEps === 1 ? " episode queued" : " episodes queued") : "Backup restored");
     };
     reader.readAsText(file);
   }

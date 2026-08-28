@@ -113,6 +113,23 @@ python3 tools/earshot-transcript.py --open "https://youtu.be/..."
 Useful flags: `--lang "en.*,pl.*"`, `--words 30`, `--out episode.txt`, `--no-copy`.
 It works for anything yt-dlp supports, not only YouTube.
 
+### Queueing episodes from the Mac — the fast way
+
+Copying a transcript on a phone is genuinely painful, so don't. Prepare on the Mac and carry one
+file across:
+
+```bash
+python3 tools/earshot-transcript.py --queue queue.json "https://youtu.be/..."
+python3 tools/earshot-transcript.py --queue queue.json "https://youtu.be/..."
+```
+
+Then AirDrop `queue.json` to the iPhone and open it in Earshot: **Settings → Restore / import**.
+Every episode arrives with its transcript, ready to play.
+
+The queue file is just an Earshot backup with episodes and no words, so import merges rather
+than replaces — importing the same file twice adds nothing, and re-running the script on a URL
+already in the file refreshes it instead of duplicating.
+
 ### One tap from the phone — `tools/ios-shortcut.md`
 
 A Shortcut isn't a browser, so CORS doesn't apply, and it runs on your home connection rather
