@@ -12,7 +12,7 @@
 (function(){
   "use strict";
 
-  var VERSION = "3.4";
+  var VERSION = "3.5";
   var KEY = "earshot.v3", KEY_V2 = "earshot.v2", KEY_V1 = "earshot.v1";
   var SEED = {};                       // definitions Claude can seed on republish
 
@@ -888,7 +888,7 @@
       '<p class="result" id="batch-result" hidden></p></div>' +
 
       '<div class="block"><h3>Your data</h3>' +
-      "<p>Everything lives on this device. Download a backup before clearing Safari&rsquo;s data &mdash; and use <b>Restore</b> to take in a queue file prepared on your Mac, which is how episodes and their transcripts get here without any typing.</p>" +
+      "<p>Everything lives on this device. Download a backup before clearing Safari&rsquo;s data.</p><p><b>Restore / import</b> also takes in a queue file prepared on your Mac &mdash; that is how episodes and their transcripts get here without typing. If you ran the script with <span class='miss'>--icloud</span>, tap Restore / import, then <b>Browse &rarr; iCloud Drive &rarr; Earshot &rarr; queue.json</b>.</p>" +
       '<div class="row"><button class="ghost" data-act="backup">Download backup</button>' +
       '<button class="ghost" data-act="restore">Restore / import</button>' +
       '<button class="ghost" data-act="export">Copy everything</button></div>' +

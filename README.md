@@ -119,12 +119,15 @@ Copying a transcript on a phone is genuinely painful, so don't. Prepare on the M
 file across:
 
 ```bash
-python3 tools/earshot-transcript.py --queue queue.json "https://youtu.be/..."
-python3 tools/earshot-transcript.py --queue queue.json "https://youtu.be/..."
+python3 tools/earshot-transcript.py --icloud "https://youtu.be/..."
+python3 tools/earshot-transcript.py --icloud "https://youtu.be/..."
 ```
 
-Then AirDrop `queue.json` to the iPhone and open it in Earshot: **Settings → Restore / import**.
-Every episode arrives with its transcript, ready to play.
+`--icloud` writes the queue file to `iCloud Drive/Earshot/queue.json`, so it is on the iPhone by
+itself — no AirDrop, no cable. On the phone: **Words → gear → Restore / import → Browse →
+iCloud Drive → Earshot → queue.json**. Every episode arrives with its transcript, ready to play.
+
+Use `--queue <path>` instead if you would rather keep the file somewhere else and send it yourself.
 
 The queue file is just an Earshot backup with episodes and no words, so import merges rather
 than replaces — importing the same file twice adds nothing, and re-running the script on a URL
@@ -266,6 +269,9 @@ The transcript index is built on demand and never stored — `buildIndex()` turn
 to improve matching.
 
 ### Ideas for where to take it next
+
+(The bigger plan — backend, Mac widget, native app, and the one change to make *before* any
+of it — is in [ROADMAP.md](ROADMAP.md).)
 
 - **Automatic definitions** — one tap instead of the copy/paste loop. Needs a small backend to
   hold an API key; this is the biggest quality-of-life win and your first server-side piece.
