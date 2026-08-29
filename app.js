@@ -12,7 +12,7 @@
 (function(){
   "use strict";
 
-  var VERSION = "3.5";
+  var VERSION = "3.6";
   var KEY = "earshot.v3", KEY_V2 = "earshot.v2", KEY_V1 = "earshot.v1";
   var SEED = {};                       // definitions Claude can seed on republish
 
@@ -376,6 +376,13 @@
       ipa: String(d.ipa || d.pronunciation || "").trim(),
       pos: String(d.pos || d.partOfSpeech || "").trim()
     };
+  }
+
+  /* The sentence Claude found in the episode, when it had the transcript.
+     Kept separate from pickDef so a reply without one never blanks what
+     the microphone or a local transcript already captured. */
+  function pickSentence(d){
+    return String((d && (d.sentence || d.heard_in || d.heardIn)) || "").trim();
   }
 
   function applySeed(){
@@ -1262,10 +1269,19 @@
     "copy-words": function(){
       var pending = store.entries.filter(function(e){ return e.kind !== "note" && !e.meaning; });
       if(!pending.length){ toast("Every word already has a meaning"); return; }
-      var payload = pending.map(function(e){
-        var o = { word:e.word };
-        if(e.sentence) o.heard_in = e.sentence;
-        return o;
+      var byEp = {};
+      pending.forEach(function(e){ (byEp[e.episodeId] = byEp[e.episodeId] || []).push(e); });
+      var payload = Object.keys(byEp).map(function(id){
+        var ep = episodeById(id);
+        return {
+          episode: ep ? ep.title : "Unknown",
+          link: ep ? ep.url : "",
+          words: byEp[id].map(function(e){
+            var o = { word:e.word };
+            if(e.sentence) o.heard_in = e.sentence;
+            return o;
+          })
+        };
       });
       copy("These are English words I heard in a podcast but did not know. They were captured by speech " +
         "recognition, so some are MISSPELLED — work out the real word from the spelling and any sentence " +
@@ -1273,8 +1289,12 @@
         "For each one give a short plain-English meaning (one or two sentences, matching how it is used " +
         "where I heard it), the IPA pronunciation, the part of speech, and one fresh example sentence. " +
         "If a word is too garbled to identify, set \"corrected\" to \"?\" and leave the rest empty.\n\n" +
-        "Reply with ONLY a JSON array like " +
-        '[{"word":"","corrected":"","pos":"","ipa":"","meaning":"","example":""}] and nothing else.\n\n' +
+        "Each group names the episode and its link. If you can find that episode's transcript, " +
+        "please also give me \"sentence\": the actual line from the episode where the word is used — " +
+        "that is the part I care about most. Leave it out if you cannot find it; do not invent one.\n\n" +
+        "Reply with ONLY a flat JSON array like " +
+        '[{"word":"","corrected":"","pos":"","ipa":"","meaning":"","example":"","sentence":""}] ' +
+        "— one entry per word across all episodes, nothing else.\n\n" +
         JSON.stringify(payload, null, 2), "Copied — paste it into Claude");
     },
 
@@ -1285,7 +1305,7 @@
       var data;
       try{ data = JSON.parse(raw.slice(a, b+1)); }catch(e){ toast("Could not read that JSON"); return; }
       if(!Array.isArray(data)){ toast("Expected a list"); return; }
-      var applied = 0, fixed = 0, unknown = 0;
+      var applied = 0, fixed = 0, unknown = 0, sentences = 0;
       data.forEach(function(d){
         var w = cleanWord(d && d.word);
         if(!w) return;
@@ -1301,6 +1321,12 @@
             fixed++;
           }
           Object.assign(e, def);
+          var sent = pickSentence(d);
+          if(sent && sent !== e.sentence){
+            e.sentence = sent;
+            e.via = "claude";
+            sentences++;
+          }
           e.updatedAt = Date.now();
           applied++;
         });
@@ -1309,6 +1335,7 @@
       save(); ui.panel = null;
       notice("<b>" + applied + "</b> " + (applied === 1 ? "meaning" : "meanings") + " added" +
         (fixed ? ", <b>" + fixed + "</b> " + (fixed === 1 ? "spelling" : "spellings") + " corrected" : "") +
+        (sentences ? ", <b>" + sentences + "</b> " + (sentences === 1 ? "sentence" : "sentences") + " from the episode" : "") +
         (unknown ? ", " + unknown + " too garbled to identify" : "") + ".");
       toast(applied + (applied === 1 ? " meaning added" : " meanings added"));
       render();

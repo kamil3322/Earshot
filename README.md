@@ -149,11 +149,17 @@ The Shortcut only fetches; Earshot does the parsing, which is why `buildIndex()`
 - **Re-match my words** — after adding or replacing a transcript, every word already caught for
   that episode gets its sentence, timestamp and spelling refreshed.
 - **Paste a list of words** — for words dictated into a note or a Siri shortcut.
-- **Copy for Claude** → paste into a Claude chat → paste the JSON reply back to fill in meaning,
-  IPA, part of speech and an example. The prompt also asks Claude to repair mishearings, so this
-  is how spelling gets fixed when there is no transcript — `meticulus` comes back as
-  **meticulous**, with the original kept as `heardAs`, and anything too garbled is reported
-  rather than guessed.
+- **Copy for Claude** → paste into a Claude chat → paste the JSON reply back. This is the main
+  loop, and it does three jobs at once:
+  - fills in meaning, IPA, part of speech and an example
+  - repairs mishearings — `meticulus` comes back as **meticulous**, the original kept as
+    `heardAs`, anything too garbled reported rather than guessed
+  - brings back **the sentence from the episode itself**, when Claude can find that episode's
+    transcript online
+
+  The copied block groups words by episode and includes each episode's title and link, which is
+  what lets Claude go and find the transcript. That is why a transcript inside the app is
+  optional: the sentence can come back from outside instead.
 - **Download backup** — a JSON file of everything, restorable on another device.
 - **Run microphone check** — reports exactly which step the browser refuses.
 
