@@ -11,44 +11,33 @@ disagree. The backend is what makes the other two worth building.
 
 ---
 
-## 1. The backend
+## 1. The backend — **built, v4.0**
 
-Smaller than it sounds. One user, one dataset, no accounts, no login screen — a shared secret in
-a header is enough for something only you use.
+`server/worker.js`, one Cloudflare Worker and one KV namespace. Setup and endpoint list are in
+[server/README.md](server/README.md).
 
-**What it needs to do**
+Two things came out differently from the plan above, and both were right:
 
-| Endpoint | Why |
-|---|---|
-| `GET /state?since=<ts>` | everything changed since the client last synced |
-| `POST /state` | push local changes |
-| `POST /define` | words in, meanings out — the API key lives here, never in the client |
+**Accounts, not a shared secret.** The plan said a header secret was enough for one user. It
+isn't — a secret in a header is a password with no way to change it, no way to sign out a lost
+phone, and no way to grow. Real accounts cost about eighty lines and remove that ceiling. The
+password is stretched in the browser and never sent, which also keeps it off Cloudflare.
 
-That third one removes the copy/paste round-trip to Claude, which is the biggest daily friction
-left in the app.
+**A server counter, not `since=<ts>`.** Selecting changes by timestamp assumes a Mac and a phone
+agree about the time. They don't. Every write bumps a per-account counter and stamps the records
+it touched; a client asks for everything above the number it last saw.
 
-**What it should NOT do: fetch transcripts.** YouTube blocks datacenter IPs, so a server is the
-worst possible place for that. Your Mac has a residential connection and already has the script —
-keep the Mac as the fetcher and let the backend be a mailbox: Mac pushes prepared episodes, phone
-pulls them. That kills the AirDrop step without fighting Google.
+**Tombstones landed first, as this file insisted.** `deletedAt` instead of splicing, every view
+reading through `eps()` / `ents()`, ninety-day purge. Retrofitting that after two clients were
+live would have been genuinely unpleasant.
 
-**Suggested shape:** Cloudflare Workers + D1, or Fly.io + SQLite. Both free at this size, neither
-needs a machine you maintain.
+**Still true: the server does not fetch transcripts.** YouTube blocks datacenter IPs and a Worker
+is a datacenter IP. Transcripts still come from the Mac, from a copy/paste, or through
+`/v1/ingest` — a narrow key that can add an episode and nothing else, so Claude can push one
+straight into the account from a chat. That last route is what actually killed the AirDrop step.
 
-**Do this before writing any sync code — tombstones.** Right now `del-entry` removes the object
-outright. With two devices, a word deleted on the phone gets resurrected by the Mac's copy on the
-next sync. The fix is to mark rather than remove:
-
-```js
-e.deletedAt = Date.now();          // instead of dropping it from the array
-```
-
-…and filter deleted entries out of every view. Cheap to add now, unpleasant to retrofit once two
-clients are live. Everything else the model needs for sync is already there: stable ids and
-`updatedAt` on every record, and all writes funnelled through `save()`.
-
-Last-write-wins per record is sufficient here. You are one person on two devices; you will not
-edit the same word in two places in the same minute.
+**Not done yet: `POST /define`.** Words in, meanings out, API key held server-side. It is the
+biggest daily friction left and now a small addition rather than a new piece of infrastructure.
 
 ---
 
@@ -87,7 +76,8 @@ podcast, or if you find yourself wanting YouTube in front while capturing.
 
 ## What not to build
 
-- **Sync with conflict resolution.** You are one person. Last-write-wins.
-- **Accounts, sharing, multi-user.** Nothing in the design needs them.
+- **Sync with conflict resolution.** You are one person. Last-write-wins, and that is what shipped.
+- **Sharing and multi-user.** Accounts exist now, but only so *your* devices agree. Nothing in the
+  design needs other people in it.
 - **An App Store release.** Personal apps do not need review, and review would ask questions
   about the microphone you do not want to answer.

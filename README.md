@@ -8,6 +8,9 @@ timestamp that jumps you back to the moment.
 
 Three tabs: **Listen** (the queue), **Notes** (your own thoughts), **Words** (meanings and review).
 
+Sign in and every device holds the same library: queue an episode on the Mac and it is
+already on the phone. See [server/README.md](server/README.md) for the ten-minute setup.
+
 ---
 
 ## Why it needs its own address
@@ -217,6 +220,13 @@ show **Add** instead of play. Finished episodes collapse into a section at the b
 and the transcript controls. **Edit** (top right) opens title, link and transcript; saving a
 changed transcript re-matches that episode's words automatically.
 
+The **link** field is deliberately a plain text box, not `type="url"`. A phone hands
+you links wrapped in other things — `Check this out: https://… via YouTube`, a bare
+`youtu.be/…` with no scheme, a trailing full stop — and a `type="url"` field refuses
+to submit the whole form over an *optional* value, silently, which reads as "the app
+won't let me add episodes". `cleanUrl()` pulls the link out instead, and an
+unreadable one costs you tappable timestamps, never the episode.
+
 **Notes** collects every note across episodes, grouped by episode, with search. **Words** is the
 review list with its filters and the Claude round-trip. Settings (batch import, backup, the
 microphone check) sits behind the gear.
@@ -230,9 +240,25 @@ that don't exist. The whole UI renders from state into `#view`, and every contro
 after it. Add a control by adding markup with `data-act="thing"` and a matching entry in the
 `actions` table; there is nothing to bind.
 
-The version shows in Settings, at the bottom (`v3.3`), so you can always tell
+The version shows in Settings, at the bottom (`v4.0`), so you can always tell
 which build a device is actually running. Bump `VERSION` in `app.js` and `CACHE` in `sw.js`
 together when you deploy.
+
+### Your account
+
+`server/worker.js` is a single Cloudflare Worker holding one document per
+account. The app stays **local-first**: everything is written to `localStorage`
+first and the server is caught up with afterwards. That is not an optimisation —
+the microphone gets used on trains, and a word you just heard must not depend on
+having signal.
+
+A record needs pushing when its `syncedAt` no longer equals its `updatedAt` —
+two of the same device's own numbers, so it does not matter that the Mac and the
+phone disagree about the time. What comes back is chosen by the server's own
+counter, for the same reason.
+
+Your password is stretched in the browser and never sent; the server only ever
+sees the derived value. Details, endpoints and setup: [server/README.md](server/README.md).
 
 ### Data model
 
@@ -249,7 +275,9 @@ automatically; a flat v1 list lands in an episode called *Earlier words*.
     url: "https://youtube.com/watch?v=...",   // optional, makes timestamps tappable
     transcript: "…",                          // raw pasted text, or a raw .vtt file
     status: "queued",               // "queued" | "done"
-    createdAt, updatedAt
+    createdAt, updatedAt,
+    deletedAt,                      // tombstone — set instead of removing
+    syncedAt                        // updatedAt as of the last successful push
   }],
   entries: [{
     id: "w1a2b3c4",
@@ -270,6 +298,16 @@ automatically; a flat v1 list lands in an episode called *Earlier words*.
 Notes use the same entry shape with `kind: "note"`, `text` instead of `word`, and `passage`
 instead of `sentence`.
 
+Nothing is ever spliced out. Deleting sets `deletedAt`, because a hard delete on one device
+is simply handed back by the next sync from another. Everything that displays or counts goes
+through `eps()` / `ents()`, which skip the tombstones; only sync, export and the import merge
+see them. They are purged after ninety days — long enough for a phone that has been off for a
+season to come back and still learn about the deletion.
+
+Account state lives separately under `earshot.account` (`api`, `email`, `token`, `lastSeq`) so
+that signing out never touches your words, and so `activeId` stays per-device: what you are
+listening to on the phone is not what the Mac should start playing.
+
 The transcript index is built on demand and never stored — `buildIndex()` turns raw text into
 `{sentences: [{text, t}], vocab: {word: count}}`. That's the piece to look at first if you want
 to improve matching.
@@ -279,8 +317,8 @@ to improve matching.
 (The bigger plan — backend, Mac widget, native app, and the one change to make *before* any
 of it — is in [ROADMAP.md](ROADMAP.md).)
 
-- **Automatic definitions** — one tap instead of the copy/paste loop. Needs a small backend to
-  hold an API key; this is the biggest quality-of-life win and your first server-side piece.
+- **Automatic definitions** — one tap instead of the copy/paste loop. The server exists now, so
+  this is a matter of putting an API key in it and adding one endpoint.
 - **Spaced repetition** — a `reviewedAt` / `strength` pair on each entry and a daily queue.
 - **Fetching transcripts** — YouTube captions can be pulled server-side (Google blocks
   datacenter IPs, so it's flaky); podcasts are easier — RSS gives you the MP3 and Whisper

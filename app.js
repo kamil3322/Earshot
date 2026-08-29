@@ -12,7 +12,7 @@
 (function(){
   "use strict";
 
-  var VERSION = "3.6";
+  var VERSION = "4.0";
   var KEY = "earshot.v3", KEY_V2 = "earshot.v2", KEY_V1 = "earshot.v1";
   var SEED = {};                       // definitions Claude can seed on republish
 
@@ -39,15 +39,29 @@
 
   function newId(p){ return (p || "x") + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
+  /* A tombstone only has to outlive the slowest device's trip back online.
+     Ninety days is generous for that and keeps the graveyard from growing
+     without bound. Purging earlier risks a long-offline phone resurrecting
+     something you deleted months ago. */
+  var TOMBSTONE_TTL = 90 * 24 * 3600 * 1000;
+
+  function purgeTombstones(s){
+    var cut = Date.now() - TOMBSTONE_TTL;
+    var keep = function(r){ return !r.deletedAt || r.deletedAt > cut; };
+    s.episodes = s.episodes.filter(keep);
+    s.entries = s.entries.filter(keep);
+    return s;
+  }
+
   function readStore(){
     var d = readJSON(KEY);
     if(d && d.episodes){
-      return {
+      return purgeTombstones({
         v:3,
         episodes: (d.episodes || []).map(normEpisode),
         entries: (d.entries || []).filter(function(e){ return e && e.id; }),
         activeId: d.activeId || null
-      };
+      });
     }
     var v2 = readJSON(KEY_V2);
     if(v2 && (v2.episodes || v2.entries)){
@@ -88,6 +102,7 @@
   function save(){
     forgetSightings();
     try{ localStorage.setItem(KEY, JSON.stringify(store)); }catch(e){}
+    syncSoon();
   }
 
   function mergeEntries(a, b){
@@ -101,9 +116,18 @@
       .sort(function(x,y){ return (y.createdAt||0) - (x.createdAt||0); });
   }
 
-  function episodeById(id){ return store.episodes.filter(function(e){ return e.id === id; })[0] || null; }
+  /* ---- live records ----
+     Deleting sets deletedAt rather than splicing, so a delete on one device
+     survives the trip to the others; without a tombstone the next sync just
+     hands the record back. Everything that displays or counts goes through
+     eps()/ents(); only sync, export and the import merge see the graveyard. */
+  function live(list){ return (list || []).filter(function(r){ return !r.deletedAt; }); }
+  function eps(){ return live(store.episodes); }
+  function ents(){ return live(store.entries); }
+
+  function episodeById(id){ return eps().filter(function(e){ return e.id === id; })[0] || null; }
   function activeEpisode(){ return episodeById(store.activeId); }
-  function entriesOf(id){ return store.entries.filter(function(e){ return e.episodeId === id; }); }
+  function entriesOf(id){ return ents().filter(function(e){ return e.episodeId === id; }); }
 
   /* ======================= transcript index ======================= */
 
@@ -299,11 +323,11 @@
     sightings = {};
     var words = {};
     // a word you have marked known no longer needs surfacing
-    store.entries.forEach(function(e){ if(e.kind !== "note" && e.word && !e.known) words[e.word] = 1; });
+    ents().forEach(function(e){ if(e.kind !== "note" && e.word && !e.known) words[e.word] = 1; });
     var list = Object.keys(words);
     if(!list.length) return sightings;
 
-    store.episodes.forEach(function(ep){
+    eps().forEach(function(ep){
       var idx = indexFor(ep);
       if(!idx) return;
       list.forEach(function(w){
@@ -330,7 +354,7 @@
   /* words saved elsewhere that turn up in this episode */
   function turnUpIn(ep){
     var s = buildSightings(), first = {}, out = [];
-    store.entries.forEach(function(e){
+    ents().forEach(function(e){
       if(e.kind === "note" || e.episodeId === ep.id || e.known) return;
       if(!first[e.word]) first[e.word] = e;
     });
@@ -386,7 +410,7 @@
   }
 
   function applySeed(){
-    store.entries.forEach(function(e){
+    ents().forEach(function(e){
       if(e.kind !== "note" && !e.meaning && SEED[e.word]){
         Object.assign(e, pickDef(SEED[e.word]));
         e.updatedAt = Date.now();
@@ -399,7 +423,7 @@
     if(w.length < 2) return null;
     var ep = epId || store.activeId;
     var now = Date.now();
-    var dupe = store.entries.filter(function(e){
+    var dupe = ents().filter(function(e){
       return e.kind !== "note" && e.word === w && e.episodeId === ep;
     })[0];
     if(dupe && now - (dupe.createdAt||0) < 60000) return null;
@@ -546,9 +570,9 @@
 
   function viewListen(){
     var live = activeEpisode();
-    var queued = store.episodes.filter(function(e){ return e.status !== "done" && e.id !== (live && wantListening ? live.id : null); });
-    var done = store.episodes.filter(function(e){ return e.status === "done"; });
-    var words = store.entries.filter(function(e){ return e.kind !== "note"; });
+    var queued = eps().filter(function(e){ return e.status !== "done" && e.id !== (live && wantListening ? live.id : null); });
+    var done = eps().filter(function(e){ return e.status === "done"; });
+    var words = ents().filter(function(e){ return e.kind !== "note"; });
 
     var html = mastheadHTML("Earshot", "catch · review",
       '<div class="counts"><div><b>' + words.filter(function(e){ return e.known; }).length + "</b> yours</div>" +
@@ -557,7 +581,7 @@
     if(live && wantListening) html += nowPlayingHTML(live);
     html += noticeHTML();
 
-    if(!store.episodes.length){
+    if(!eps().length){
       html += '<div class="empty"><strong>Nothing queued yet</strong>' +
         "Add the episode you&rsquo;re about to listen to, with its transcript. Then every word you catch " +
         "comes back spelled right, in the sentence you heard it in.</div>" +
@@ -705,7 +729,7 @@
   /* ---- Notes ---- */
 
   function viewNotes(){
-    var html = mastheadHTML("Notes", store.entries.filter(function(e){ return e.kind === "note"; }).length + " kept",
+    var html = mastheadHTML("Notes", ents().filter(function(e){ return e.kind === "note"; }).length + " kept",
       '<button class="iconbtn" data-act="settings" aria-label="Settings">' +
       '<svg width="17" height="17" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="2.6" stroke="currentColor" stroke-width="1.5"/>' +
       '<path d="M10 2.6 V5 M10 15 V17.4 M17.4 10 H15 M5 10 H2.6 M15.2 4.8 L13.5 6.5 M6.5 13.5 L4.8 15.2 M15.2 15.2 L13.5 13.5 M6.5 6.5 L4.8 4.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>');
@@ -719,7 +743,7 @@
 
   function notesListHTML(){
     var q = ui.q.toLowerCase();
-    var notes = store.entries.filter(function(e){
+    var notes = ents().filter(function(e){
       if(e.kind !== "note") return false;
       if(ui.noteFilter === "passage" && !e.passage) return false;
       if(ui.noteFilter === "mine" && e.source === "voice") return false;
@@ -736,7 +760,7 @@
   /* ---- Words ---- */
 
   function viewWords(){
-    var words = store.entries.filter(function(e){ return e.kind !== "note"; });
+    var words = ents().filter(function(e){ return e.kind !== "note"; });
     var pending = words.filter(function(e){ return !e.meaning; });
 
     var known = words.filter(function(e){ return e.known; }).length;
@@ -770,7 +794,7 @@
 
   function wordsListHTML(){
     var q = ui.q.toLowerCase();
-    var words = store.entries.filter(function(e){
+    var words = ents().filter(function(e){
       if(e.kind === "note") return false;
       if(ui.wordFilter === "pending" && e.meaning) return false;
       if(ui.wordFilter === "learning" && (!e.meaning || e.known)) return false;
@@ -874,7 +898,7 @@
       (ep ? '<button type="button" class="ghost small danger" data-act="delete-ep" data-id="' + esc(ep.id) + '">Delete</button>' : "") +
       "</div>" +
       '<input id="f-title" type="text" placeholder="Episode or video title" value="' + esc(ep ? ep.title : "") + '" aria-label="Title">' +
-      '<input id="f-url" type="url" inputmode="url" placeholder="Link — optional, makes timestamps tappable" value="' + esc(ep ? ep.url : "") + '" aria-label="Link">' +
+      '<input id="f-url" type="text" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="Link — optional, makes timestamps tappable" value="' + esc(ep ? ep.url : "") + '" aria-label="Link">' +
       '<textarea id="f-transcript" placeholder="Paste the transcript before you listen. Plain text or a raw .vtt caption file." aria-label="Transcript">' + esc(ep ? ep.transcript : "") + "</textarea>" +
       '<div class="row"><button class="primary" type="submit">' + (ep ? "Save changes" : "Start this episode") + "</button>" +
       '<button type="button" class="ghost" data-act="paste-transcript">Paste</button>' +
@@ -884,10 +908,44 @@
 
   /* ---- settings ---- */
 
+  function accountHTML(){
+    var status = syncState.busy ? "syncing…"
+      : syncState.error ? '<span class="miss">' + esc(syncState.error) + "</span>"
+      : signedIn() ? ("last synced " + fmtAgo(syncState.at) + (syncState.note ? " · " + esc(syncState.note) : ""))
+      : "";
+
+    if(!signedIn()){
+      return '<div class="block"><h3>Your account</h3>' +
+        "<p>Sign in and this device keeps itself level with the others — episodes you queue on the Mac arrive here, words you catch here go back. Everything still works offline; it catches up when you have signal.</p>" +
+        '<form class="form" data-act="do-signin" autocomplete="on">' +
+        '<input id="a-api" type="text" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="Server address — https://…workers.dev" value="' + esc(acct.api || "") + '" aria-label="Server address">' +
+        '<input id="a-email" type="email" inputmode="email" autocapitalize="off" spellcheck="false" autocomplete="username" placeholder="Email" value="' + esc(acct.email || "") + '" aria-label="Email">' +
+        '<input id="a-pass" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password">' +
+        '<div class="row"><button class="primary" type="submit">Sign in</button>' +
+        '<button type="button" class="ghost" data-act="do-signup">Create an account</button></div>' +
+        '<p class="result" id="a-result"' + (status ? "" : " hidden") + ">" + status + "</p></form></div>";
+    }
+
+    var tok = acct.ingest || "";
+    return '<div class="block"><h3>Your account</h3>' +
+      "<p>Signed in as <b>" + esc(acct.email) + "</b> &mdash; " + status + "</p>" +
+      '<div class="row"><button class="primary" data-act="sync-now">Sync now</button>' +
+      '<button class="ghost" data-act="do-signout">Sign out</button></div>' +
+      '<p class="result" id="a-result" hidden></p>' +
+      "<p style='margin-top:14px'><b>Adding episodes from a chat.</b> An ingest key lets Claude drop an episode and its transcript straight into your account. It can only add episodes &mdash; it cannot read a word you saved and it cannot delete anything.</p>" +
+      (tok
+        ? '<pre class="log" id="ingest-key">' + esc(tok) + "</pre>" +
+          '<div class="row"><button class="ghost" data-act="copy-ingest">Copy key</button>' +
+          '<button class="ghost small danger" data-act="revoke-ingest">Revoke</button></div>'
+        : '<div class="row"><button class="ghost" data-act="make-ingest">Create an ingest key</button></div>') +
+      "</div>";
+  }
+
   function viewSettings(){
     return '<div class="nav"><button class="backbtn" data-act="back" aria-label="Back">' +
       '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4 L6 10 L12 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
       '</button><span class="t">settings</span></div>' +
+      accountHTML() +
       '<div class="block"><h3>Words from your phone</h3>' +
       '<p>Dictated words piling up in a note or a Siri shortcut? Paste them here, one per line. A dash adds the sentence &mdash; <span class="miss">quandary &mdash; a real quandary</span>.</p>' +
       '<textarea id="batch-box" placeholder="serendipity&#10;debacle &mdash; the whole rollout was a debacle"></textarea>' +
@@ -908,7 +966,7 @@
       '<button class="ghost" data-act="diag-copy">Copy report</button></div>' +
       '<pre id="diag-log" class="log">Not run yet.</pre></div>' +
 
-      '<div class="status"><span class="dot"></span><span>' + store.entries.length + " saved on this device · v" + VERSION + "</span></div>";
+      '<div class="status"><span class="dot"></span><span>' + ents().length + " saved on this device · v" + VERSION + "</span></div>";
   }
 
   /* ---- render ---- */
@@ -1065,11 +1123,15 @@
   function releaseScreen(){ try{ if(wakeLock){ wakeLock.release(); wakeLock = null; } }catch(e){} }
 
   document.addEventListener("visibilitychange", function(){
-    if(document.visibilityState === "visible" && wantListening){
+    if(document.visibilityState !== "visible") return;
+    if(wantListening){
       wakeLock = null; holdScreen();
       clearTimeout(restartTimer);
       restartTimer = setTimeout(function(){ if(rec) try{ rec.start(); }catch(e){} }, 300);
     }
+    /* Coming back to the app is the moment you would expect it to have
+       caught up — the episode you queued on the Mac should already be here. */
+    syncNow(true);
   });
 
   function startListening(epId){
@@ -1100,9 +1162,211 @@
     render();
   }
 
+  /* ========================= account & sync =========================
+
+     Local-first, deliberately. The microphone is the whole app and it gets
+     used on a train; if capture depended on the network you would lose the
+     word you just heard. So everything is written to localStorage first and
+     the server is only ever caught up with afterwards. Being offline costs
+     you nothing but a delay.
+
+     A record needs pushing when its syncedAt no longer equals its updatedAt.
+     That is a comparison between two of this device's own numbers, so it
+     survives the clock disagreeing with the other device — which a plain
+     "changed since last push" timestamp would not. What comes back is
+     selected by the server's own counter for the same reason.              */
+
+  var ACCT_KEY = "earshot.account";
+  var acct = readJSON(ACCT_KEY) || { api:"", email:"", token:"", lastSeq:0 };
+  var syncState = { busy:false, at:0, error:"", note:"" };
+  var syncTimer = null;
+
+  function saveAcct(){
+    try{ localStorage.setItem(ACCT_KEY, JSON.stringify(acct)); }catch(e){}
+  }
+
+  function signedIn(){ return !!(acct && acct.api && acct.token); }
+
+  function apiBase(){ return String(acct.api || "").replace(/\/+$/, ""); }
+
+  /* The password is stretched here and never leaves the device — the server
+     only ever sees the derived value, and salting it with the email means the
+     same password on two accounts derives to two different verifiers. */
+  async function verifierFor(email, password){
+    if(!window.crypto || !crypto.subtle) throw new Error("This browser will not do crypto on an insecure page — the app must be on https.");
+    var enc = new TextEncoder();
+    var key = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
+    var bits = await crypto.subtle.deriveBits(
+      { name:"PBKDF2", hash:"SHA-256", salt:enc.encode("earshot:" + String(email).toLowerCase()), iterations:250000 },
+      key, 256);
+    return Array.prototype.map.call(new Uint8Array(bits), function(b){
+      return ("0" + b.toString(16)).slice(-2);
+    }).join("");
+  }
+
+  async function api(method, path, body, token){
+    var base = apiBase();
+    if(!base) throw new Error("No server address set.");
+    var headers = {};
+    if(body !== undefined) headers["content-type"] = "application/json";
+    if(token) headers.authorization = "Bearer " + token;
+    var res;
+    try{
+      res = await fetch(base + path, {
+        method: method, headers: headers,
+        body: body === undefined ? undefined : JSON.stringify(body)
+      });
+    }catch(e){
+      throw new Error("Could not reach the server — check the address, or your connection.");
+    }
+    var data = null;
+    try{ data = await res.json(); }catch(e){}
+    if(!res.ok) throw new Error((data && data.error) || ("Server said " + res.status + "."));
+    return data || {};
+  }
+
+  function dirtyRecords(){
+    var pick = function(r){ return r.syncedAt !== r.updatedAt; };
+    return { episodes: store.episodes.filter(pick), entries: store.entries.filter(pick) };
+  }
+
+  function markSynced(list){
+    list.forEach(function(r){ r.syncedAt = r.updatedAt; });
+  }
+
+  /* Incoming loses to a local record that is newer; that local copy is still
+     dirty, so the next push settles it the other way. */
+  function applyIncoming(localList, incoming){
+    var byId = {}, changed = 0;
+    localList.forEach(function(r){ byId[r.id] = r; });
+    (incoming || []).forEach(function(r){
+      if(!r || !r.id) return;
+      var mine = byId[r.id];
+      if(mine && (mine.updatedAt || 0) > (r.updatedAt || 0)) return;
+      r.syncedAt = r.updatedAt;
+      if(mine){ Object.assign(mine, r); }
+      else { localList.push(r); byId[r.id] = r; }
+      changed++;
+    });
+    return changed;
+  }
+
+  async function syncNow(quiet){
+    if(!signedIn() || syncState.busy) return;
+    syncState.busy = true; syncState.error = "";
+    var redraw = false;
+    if(!quiet) renderIfSettings();
+    try{
+      var out = dirtyRecords();
+      var res = await api("POST", "/v1/sync", {
+        since: acct.lastSeq || 0,
+        episodes: out.episodes,
+        entries: out.entries
+      }, acct.token);
+
+      markSynced(out.episodes); markSynced(out.entries);
+      var changed = applyIncoming(store.episodes, res.episodes) +
+                    applyIncoming(store.entries, res.entries);
+
+      acct.lastSeq = res.seq || 0; saveAcct();
+      forgetSightings();
+      if(changed) indexes = {};
+      try{ localStorage.setItem(KEY, JSON.stringify(store)); }catch(e){}
+
+      syncState.at = Date.now();
+      syncState.note = changed ? (changed + " item" + (changed === 1 ? "" : "s") + " came in") : "";
+      redraw = changed > 0;
+    }catch(e){
+      syncState.error = e.message || String(e);
+      /* A dead token means the session was revoked; make the app say so
+         rather than retrying forever against a door that will not open. */
+      if(/expired|Sign in first/i.test(syncState.error)){ acct.token = ""; saveAcct(); }
+    }finally{
+      /* Clear busy before drawing, or the status line paints "syncing…" over
+         the very error it is meant to be reporting and then never updates. */
+      syncState.busy = false;
+      if(redraw) render(); else renderIfSettings();
+    }
+  }
+
+  function renderIfSettings(){ if(ui.settings) render(); }
+
+  /* save() fires on every caught word; coalesce so a burst is one request. */
+  function syncSoon(){
+    if(!signedIn()) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(function(){ syncNow(true); }, 4000);
+  }
+
+  /* One routine for both doors — the only difference is which endpoint, and
+     the stretch is slow enough (a fifth of a second on a phone, by design)
+     that the button has to say something while it runs. */
+  async function enter(isSignup){
+    var out = $("#a-result");
+    var say = function(msg, bad){
+      if(!out) return;
+      out.hidden = false;
+      out.innerHTML = bad ? '<span class="miss">' + esc(msg) + "</span>" : esc(msg);
+    };
+
+    var apiUrl = cleanUrl(val("#a-api")) || val("#a-api").trim();
+    var email = val("#a-email").trim();
+    var pass = val("#a-pass");
+
+    if(!apiUrl) return say("Paste your server address first — it ends in workers.dev.", true);
+    if(!email) return say("Which email?", true);
+    if(pass.length < 8) return say("Use at least eight characters — this is the only thing between the internet and your library.", true);
+
+    acct.api = apiUrl.replace(/\/+$/, "");
+    say(isSignup ? "Creating your account…" : "Signing in…");
+
+    try{
+      var verifier = await verifierFor(email, pass);
+      var res = await api("POST", isSignup ? "/v1/signup" : "/v1/signin", { email:email, verifier:verifier });
+      acct.email = res.email || email;
+      acct.token = res.token;
+      acct.lastSeq = 0;
+      saveAcct();
+      /* Everything already on this device is unsynced, so the first sync
+         uploads the lot and pulls back whatever the account already held. */
+      await syncNow(true);
+      toast(isSignup ? "Account created" : "Signed in");
+      render();
+    }catch(e){
+      say(e.message || String(e), true);
+    }
+  }
+
+  function fmtAgo(ts){
+    if(!ts) return "not yet";
+    var s = Math.round((Date.now() - ts) / 1000);
+    if(s < 60) return "just now";
+    if(s < 3600) return Math.round(s / 60) + " min ago";
+    if(s < 86400) return Math.round(s / 3600) + " h ago";
+    return Math.round(s / 86400) + " days ago";
+  }
+
   /* ============================ actions ============================ */
 
   function val(sel){ var el = $(sel); return el ? el.value : ""; }
+
+  /* Phones hand you links wrapped in other things — the Share sheet's
+     "Check this out: https://… via YouTube", a trailing full stop, a bare
+     youtu.be with no scheme. The field is optional, so nothing here is
+     allowed to refuse a save; it either finds a link or gives back "". */
+  function cleanUrl(raw){
+    var s = String(raw || "").trim();
+    if(!s) return "";
+    var m = s.match(/https?:\/\/[^\s"'<>]+/i);
+    if(m) return m[0].replace(/[.,;:)\]}]+$/, "");
+    m = s.match(/(?:^|\s)((?:www\.|[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s"'<>]*)?)/i);
+    if(m) return "https://" + m[1].replace(/[.,;:)\]}]+$/, "");
+    return "";
+  }
+
+  function looksLikeUrl(s){
+    return cleanUrl(s) !== "" && String(s).trim().split(/\s+/).length <= 4;
+  }
 
   var actions = {
     tab: function(el){
@@ -1132,16 +1396,21 @@
     "save-ep": function(el, ev){
       if(ev) ev.preventDefault();
       var id = el.dataset.id;
-      var title = val("#f-title").trim(), url = val("#f-url").trim(), transcript = val("#f-transcript").trim();
+      var title = val("#f-title").trim(), rawUrl = val("#f-url").trim(), transcript = val("#f-transcript").trim();
+      var url = cleanUrl(rawUrl);
       var out = $("#f-result");
-      if(!title && !url){
+      /* A link that couldn't be read is not a reason to lose the episode — it
+         is optional. Fall back to using whatever was typed as the title. */
+      if(!title && rawUrl && !url) title = rawUrl.slice(0, 60);
+      if(!title && !url && !transcript){
         if(out){ out.hidden = false; out.textContent = "Give it a title so you can find it later."; }
         return;
       }
+      var lostLink = !!rawUrl && !url;
       var ep = id ? episodeById(id) : null, isNew = !ep;
       if(isNew){ ep = normEpisode({ id:newId("ep"), createdAt:Date.now() }); store.episodes.unshift(ep); }
       var changed = (ep.transcript || "") !== transcript;
-      ep.title = title || url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 60);
+      ep.title = title || url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 60) || "Untitled episode";
       ep.url = url; ep.transcript = transcript; ep.updatedAt = Date.now();
       delete indexes[ep.id];
       save();
@@ -1156,7 +1425,8 @@
             "<b>" + coming.slice(0,6).map(function(c){ return esc(c.entry.word); }).join(", ") + "</b>" +
             (coming.length > 6 ? " and " + (coming.length - 6) + " more" : "") + ".");
         }
-        toast("Queued “" + ep.title + "”");
+        toast(lostLink ? "Queued — but that link didn’t look like a web address, so timestamps won’t jump. Edit to fix it."
+                       : "Queued “" + ep.title + "”");
         render();
       }else{
         ui.form = null;
@@ -1166,7 +1436,7 @@
           if(back.length) notice(ui.notice + " <b>" + back.length + "</b> of your older " +
             (back.length === 1 ? "word turns" : "words turn") + " up in this one too.");
           render();
-        }else{ toast("Saved"); render(); }
+        }else{ toast(lostLink ? "Saved — that link didn’t look like a web address" : "Saved"); render(); }
       }
     },
 
@@ -1179,8 +1449,11 @@
           " caught in it?\n\nThis cannot be undone."
         : "Delete “" + ep.title + "”?";
       if(!window.confirm(msg)) return;
-      store.entries = store.entries.filter(function(e){ return e.episodeId !== ep.id; });
-      store.episodes = store.episodes.filter(function(e){ return e.id !== ep.id; });
+      var gone = Date.now();
+      store.entries.forEach(function(e){
+        if(e.episodeId === ep.id && !e.deletedAt){ e.deletedAt = gone; e.updatedAt = gone; }
+      });
+      ep.deletedAt = gone; ep.updatedAt = gone;
       delete indexes[ep.id];
       if(store.activeId === ep.id){ store.activeId = null; wantListening = false; }
       save();
@@ -1215,7 +1488,7 @@
     filter: function(el){ ui[el.dataset.key] = el.dataset.val; render(); },
 
     "edit-entry": function(el){
-      var e = store.entries.filter(function(x){ return x.id === el.dataset.id; })[0];
+      var e = ents().filter(function(x){ return x.id === el.dataset.id; })[0];
       if(!e) return;
       var next;
       if(e.kind === "note"){
@@ -1231,7 +1504,7 @@
       save(); render();
     },
     "toggle-known": function(el){
-      var e = store.entries.filter(function(x){ return x.id === el.dataset.id; })[0];
+      var e = ents().filter(function(x){ return x.id === el.dataset.id; })[0];
       if(!e) return;
       e.known = !e.known;
       e.knownAt = e.known ? Date.now() : null;
@@ -1242,24 +1515,70 @@
     },
 
     "del-entry": function(el){
-      store.entries = store.entries.filter(function(x){ return x.id !== el.dataset.id; });
+      var e = ents().filter(function(x){ return x.id === el.dataset.id; })[0];
+      if(!e) return;
+      e.deletedAt = Date.now(); e.updatedAt = e.deletedAt;
       save(); toast("Deleted"); render();
     },
 
     rematch: function(el){ rematch(episodeById(el.dataset.id)); },
 
+    "do-signin":  function(el, ev){ if(ev) ev.preventDefault(); return enter(false); },
+    "do-signup":  function(){ return enter(true); },
+
+    "do-signout": async function(){
+      var token = acct.token;
+      acct.token = ""; acct.lastSeq = 0; acct.ingest = ""; saveAcct();
+      /* Local data stays put — signing out is not "throw my words away". */
+      toast("Signed out");
+      render();
+      try{ await api("POST", "/v1/signout", {}, token); }catch(e){}
+    },
+
+    "sync-now": function(){ syncState.note = ""; return syncNow(false); },
+
+    "make-ingest": async function(){
+      var out = $("#a-result");
+      try{
+        var res = await api("POST", "/v1/ingest-token", {}, acct.token);
+        acct.ingest = res.token; saveAcct(); render();
+      }catch(e){
+        if(out){ out.hidden = false; out.innerHTML = '<span class="miss">' + esc(e.message) + "</span>"; }
+      }
+    },
+
+    "copy-ingest": function(){ copy(acct.ingest || "", "Ingest key copied"); },
+
+    "revoke-ingest": async function(){
+      if(!window.confirm("Revoke the ingest key? Anything holding it stops being able to add episodes.")) return;
+      try{ await api("POST", "/v1/ingest-token", { revoke:true }, acct.token); }catch(e){}
+      acct.ingest = ""; saveAcct(); toast("Revoked"); render();
+    },
+
     "paste-transcript": async function(){
       var out = $("#f-result");
       try{
         var text = await navigator.clipboard.readText();
-        if(!text || text.trim().length < 40){
-          if(out){ out.hidden = false; out.textContent = "Nothing like a transcript on the clipboard."; }
+        if(!text || !text.trim()){
+          if(out){ out.hidden = false; out.textContent = "The clipboard is empty."; }
           return;
         }
-        $("#f-transcript").value = text;
+        /* One button, two jobs — whatever you copied last is usually what you
+           meant. A share link goes in the link box, everything else is a
+           transcript. */
+        if(looksLikeUrl(text)){
+          var u = $("#f-url");
+          if(u) u.value = cleanUrl(text);
+          var t = $("#f-title");
+          if(t && !t.value.trim()) t.focus();
+          if(out){ out.hidden = false; out.textContent = "Link pasted. Give it a title and start."; }
+          return;
+        }
+        var box = $("#f-transcript");
+        if(box) box.value = text;
         if(out){
           out.hidden = false;
-          out.innerHTML = "Pasted <b>" + text.trim().split(/\s+/).length.toLocaleString() + "</b> words.";
+          out.innerHTML = "Pasted <b>" + text.trim().split(/\s+/).length.toLocaleString() + "</b> words of transcript.";
         }
       }catch(e){
         if(out){ out.hidden = false; out.textContent = "The browser would not hand over the clipboard — long-press the box and paste."; }
@@ -1267,7 +1586,7 @@
     },
 
     "copy-words": function(){
-      var pending = store.entries.filter(function(e){ return e.kind !== "note" && !e.meaning; });
+      var pending = ents().filter(function(e){ return e.kind !== "note" && !e.meaning; });
       if(!pending.length){ toast("Every word already has a meaning"); return; }
       var byEp = {};
       pending.forEach(function(e){ (byEp[e.episodeId] = byEp[e.episodeId] || []).push(e); });
@@ -1312,7 +1631,7 @@
         var corrected = cleanWord(d && d.corrected);
         if(corrected === "?" || (d && d.corrected === "?")){ unknown++; return; }
         var def = pickDef(d);
-        store.entries.forEach(function(e){
+        ents().forEach(function(e){
           if(e.kind === "note" || e.word !== w) return;
           if(e.meaning && !def.meaning) return;
           if(corrected && corrected !== e.word){
@@ -1350,7 +1669,7 @@
         var parts = raw.split(/\s+[—–-]\s+|\s*[:|\t]\s*/);
         var word = parts.shift(), sentence = parts.join(" ").trim();
         var w = cleanWord(word);
-        if(store.entries.filter(function(e){ return e.kind !== "note" && e.word === w && e.episodeId === store.activeId; }).length){
+        if(ents().filter(function(e){ return e.kind !== "note" && e.word === w && e.episodeId === store.activeId; }).length){
           skipped++; return;
         }
         if(addWord(word, sentence, "typed")) added++; else skipped++;
@@ -1376,9 +1695,9 @@
     restore: function(){ var f = $("#restore-file"); if(f) f.click(); },
 
     export: function(){
-      if(!store.entries.length){ toast("Nothing to copy yet"); return; }
+      if(!ents().length){ toast("Nothing to copy yet"); return; }
       var byEp = {};
-      store.entries.forEach(function(e){ (byEp[e.episodeId] = byEp[e.episodeId] || []).push(e); });
+      ents().forEach(function(e){ (byEp[e.episodeId] = byEp[e.episodeId] || []).push(e); });
       copy(Object.keys(byEp).map(function(id){
         var ep = episodeById(id);
         var head = (ep ? ep.title : "Unfiled") + (ep && ep.url ? "\n" + ep.url : "");
@@ -1403,7 +1722,7 @@
     if(!idx){ toast("This episode has no transcript"); return; }
     var matched = 0, repaired = 0, placed = 0, missed = [];
 
-    store.entries.forEach(function(e){
+    ents().forEach(function(e){
       if(e.episodeId !== ep.id) return;
       if(e.kind === "note"){
         if(!e.passage && e.text){
@@ -1462,7 +1781,7 @@
         if(out){ out.hidden = false; out.textContent = "Nothing to import from that file."; }
         return;
       }
-      var before = store.entries.length, epsBefore = store.episodes.length;
+      var before = ents().length, epsBefore = eps().length;
       var known = {};
       store.episodes.forEach(function(e){ known[e.id] = 1; });
       incomingEps.forEach(function(e){ if(!known[e.id]) store.episodes.push(normEpisode(e)); });
@@ -1473,7 +1792,7 @@
       }
       store.entries = mergeEntries(store.entries, incoming);
       applySeed(); indexes = {}; save(); render();
-      var newEps = store.episodes.length - epsBefore, newWords = store.entries.length - before;
+      var newEps = eps().length - epsBefore, newWords = ents().length - before;
       var o = $("#data-result");
       if(o){
         o.hidden = false;
@@ -1596,6 +1915,7 @@
   applySeed();
   render();
   save();
+  if(signedIn()) syncNow(true);
 
   try{
     var p = new URLSearchParams(location.search);
